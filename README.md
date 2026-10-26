@@ -1,4 +1,4 @@
-# LeanParserGenerator
+# LeanParserGenerator: A Generator of Validated Parsers in Lean
 
 `lean-parser-generator` turns an LR(1) grammar, written in a `.lig` file, into a Lean parser. The grammar carries ordinary Lean semantic actions, so parsing can produce whatever value is useful to the application: an abstract syntax tree, a policy, a command, or simply a number.
 
@@ -8,7 +8,7 @@ This follows the a-posteriori validation architecture described in [Validating L
 
 ## A first parser
 
-We show how to use `lean-parser-generator` with a small example. Suppose that we want to parser sums of natural numbers. We begin by writing an ordinary Lean module that describes that the parser should produce (an abstract syntax tree `Ast`):
+We show how to use `lean-parser-generator` with a small example. Suppose that we want to parser sums of natural numbers. We begin by writing an ordinary Lean module that describes that the parser should produce (an abstract syntax tree `Ast`), in `MyProject/ExprAst.lean`:
 
 ```lean
 namespace Expr
@@ -20,12 +20,13 @@ inductive Ast where
 
 end Expr
 ```
-Then, we write the `.lig` file that defines our grammar, from which the parser is generated. The file starts with a `%header{...}` block that specifies Lean code that is printed as-is in the generated file. In our example, we import the previous module and open the `Expr` namespace:
+Then, we write the `.lig` file that defines our grammar, from which the parser is generated. The file starts with a `%header{...}` block that specifies Lean code that is printed as-is in the generated file. In our example, we import the previous module and open the `Expr` namespace. The `%option module_prefix` line gives the dotted prefix of the generated modules, so that they live under `MyProject`, next to the `.lig` file:
 ```text
 %header {
 import MyProject.ExprAst
 open Expr
 }
+%option module_prefix MyProject
 ```
 
 Next, the user has a choice: they have either defined a token type and a lexer outside the `.lig` definition, and in that case, this should be handled through the imports in the `%header`. Usually, one also want to define tokens and lexing at the same time as defining the grammar. `lean-parser-generator` looks for a `%lexer {...}` block in the `.lig` file to generate a lexer:
@@ -58,7 +59,35 @@ atom :: Ast
   | value=NUM              { Ast.number value }
 ```
 
-The `%token` declarations are the single source of truth for the token type. From them the generated lexer module defines `inductive Tok` (deriving `Repr`, `BEq`, `Inhabited`, and `DecidableEq`), builds the DFA tables offline, validates them, and exports `tokenize`. The lexer is generated together with the parser (see "Generating and calling the parser" below). Helpers that only the lexer needs, such as keyword folding or string unquoting, go in a `%lexerheader { … }` block, which is copied only into the lexer module.
+Put together, `MyProject/Expr.lig` is:
+```text
+%header {
+import MyProject.ExprAst
+open Expr
+}
+%option module_prefix MyProject
+%tokentype Tok
+%token <Nat> NUM
+%token PLUS
+%token EOF
+%eof EOF
+%lexer {
+  let digit = ['0'-'9']
+  | digit+ as s          => { Tok.NUM s.toNat! }
+  | "+"                  => { Tok.PLUS }
+  | (' ' | '\t' | '\n')+ => skip
+  eof => { Tok.EOF }
+}
+%start expr
+%%
+expr :: Ast
+  | lhs=expr PLUS rhs=atom { Ast.add lhs rhs }
+  | value=atom             { value }
+atom :: Ast
+  | value=NUM              { Ast.number value }
+```
+
+The `%token` declarations are shared by lexer and parser generator as the source of truth for what tokens are. From them the generated lexer module defines `inductive Tok` (deriving `Repr`, `BEq`, `Inhabited`, and `DecidableEq`), builds the DFA tables offline, validates them, and exports `tokenize`. The lexer is generated together with the parser (see "Generating and calling the parser" below). Helpers that only the lexer needs, such as keyword folding or string unquoting, go in a `%lexerheader { … }` block, which is copied only into the lexer module.
 
 ## Generating and calling the parser
 
@@ -67,10 +96,10 @@ Build the generator and ask it for a parser and its dependent specification:
 ```sh
 lake build leanparsergenerator
 
-lake exe leanparsergenerator grammar/Expr.lig
+lake exe leanparsergenerator MyProject/Expr.lig
 ```
 
-The generator infers the outputs from the input path, writing next to the `.lig` file: for example, the outputs above are `ExprVerified.lean`, `ExprParser.lean`, `ExprLexer.lean` (when the grammar has a `%lexer` block). The base name comes from the `.lig` stem (`Expr.lig` → `Expr`), so a grammar file named in the CamelCase you want for the modules produces those module names directly.
+The generator infers the outputs from the input path, writing next to the `.lig` file. For our example, it writes `MyProject/ExprVerified.lean`, `MyProject/ExprParser.lean`, and `MyProject/ExprLexer.lean` (the last one because the grammar has a `%lexer` block). The base name comes from the `.lig` stem (`Expr.lig` → `Expr`), so a grammar file named in the CamelCase you want for the modules produces those module names directly.
 
 The outputs can be controlled by different `%option` directives in the `.lig` file:
 - `%option module_prefix <path>` is the dotted prefix the modules live under inside a larger module tree — with `%option module_prefix myproject.expr` the parser imports its lexer as `myproject.expr.ExprLexer` and a caller imports `myproject.expr.ExprParser`; without it the modules are top-level.
@@ -82,15 +111,15 @@ Alternatively, the command line can spell out each output path, module name, and
 Application code imports the generated parser and lexer and calls `parse` on the tokens produced by the lexer:
 
 ```lean
-import ExprLexer
-import ExprParser
+import MyProject.ExprLexer
+import MyProject.ExprParser
 
 def parseExpr (source : String) : Except Lexer.LexError (Option Expr.Ast) := do
   let tokens ← ExprLexer.tokenize source
   pure (ExprParser.parse tokens)
 ```
 
-`ExprParser` already imports `ExprLexer` for the token type, so a caller that only needs `parse` can import `ExprParser` alone. In the hand-written regime the caller imports the application's own token module and lexer instead.
+`ExprParser` already imports `ExprLexer` for the token type, so a caller that only needs `parse` can import `ExprParser` alone. When the lexer is hand-written, the caller should import the application's own token module and lexer instead.
 
 `parse` returns `some value` when the input is accepted and `none` otherwise. The optional logarithmic-fuel argument, whose default is `20`, controls the maximum number of parser steps; a value `n` permits up to `2^n` steps.
 
@@ -100,7 +129,7 @@ Sometimes an application must distinguish a syntax error from fuel exhaustion, o
 ExprParser.run tokens
 ```
 
-Its result distinguishes `.ok`, `.reject`, `.timeout`, and `.err`. For generated, validated parsers, the `.err` case is proved unreachable.
+Its result distinguishes `.ok`, `.reject`, `.timeout`, and `.err`. Lean proves the `.err` case unreachable. The theorem is `ExprVerified.parser_ne_err`, in the generated specification module (`import MyProject.ExprVerified`). [Proven parser properties](#proven-parser-properties) below explains this and the other guarantees.
 
 The parser treats a finite list as an EOF-padded stream. Thus a lexer may append the declared EOF token—as the lexer above does—and exhausted input is also padded with that same token.
 
@@ -159,6 +188,8 @@ generated modules are not committed, a clean checkout must generate them once
 before the first library build. If they are committed—as is often convenient for
 review—plain `lake build` is enough and stale files are refreshed automatically.
 
+We recommend checking the proofs of the validated parser at a different time than the general project build. The specification module (`ExprVerified`) carries the `native_decide` certificates, and checking it from scratch takes about four minutes for the Cedar grammar and about eighteen for the C99 grammar in this repository. `ExprParser` does not import it, so the application builds and runs without it. Put the generated `*Verified` modules in their own non-default `lean_lib`, so that `lake build` stays fast, and build that library in a separate CI job or when the grammar changes. Lake caches the result, so an unchanged rebuild takes about a second. The proofs only provide a guarantee if that check runs, so it should not be skipped.
+
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md) gives a complete, tested setup. It
 includes local and pinned Git dependencies, source layout, the full generator
 command, parser and proof imports, a Lake 4.33 target, multiple-output mtime
@@ -186,24 +217,15 @@ Both modules are generated from one prepared grammar and one Pager construction.
 They should be generated together, and generated source should not be edited by
 hand.
 
-## What does Lean prove?
+## Proven Parser Properties
 
-The claims are about the exact `Grammar` found in the generated specification
-module. For that grammar, Lean proves the following facts.
+The claims are about the exact `Grammar` found in the generated specification module. For that grammar, Lean proves the following facts.
 
-If `ExprParser.parse` returns a semantic value, `parser_sound` supplies a parse
-tree, connected to the input stream, whose semantics is that value. The theorem
-`parser_err_free`—or its equality-shaped companion `parser_ne_err`—states that
-`ExprParser.run` cannot encounter an internal inconsistency in the generated
-tables.
+If `ExprParser.parse` returns a semantic value, `parser_sound` supplies a parse tree, connected to the input stream, whose semantics is that value. The theorem `parser_err_free`—or its equality-shaped companion `parser_ne_err`—states that `ExprParser.run` cannot encounter an internal inconsistency in the generated tables.
 
-In the other direction, `parser_complete` says that a supplied start parse tree
-is accepted whenever the logarithmic fuel bound covers the size of the tree.
-The type `ParserStartTree` is rooted at the augmented start symbol `S'`, so its
-word includes EOF. Finally, `parser_unambiguous` says that two start parse trees
-for the same token word have equal semantics.
+In the other direction, `parser_complete` says that a supplied start parse tree is accepted whenever the logarithmic fuel bound covers the size of the tree. The type `ParserStartTree` is rooted at the augmented start symbol `S'`, so its word includes EOF. Finally, `parser_unambiguous` says that two start parse trees for the same token word have equal semantics.
 
-These corollaries are exported directly by every paired specification module:
+These corollaries are exported directly by the specification module (e.g. `ExprVerified`):
 
 ```text
 parser_sound
@@ -214,28 +236,17 @@ parser_unambiguous
 parse_eq_dependent
 ```
 
-A caller does not have to assemble a validator proof or a refinement witness.
-The lower-level declarations remain available for developments that need them.
+A caller does not have to assemble a validator proof or a refinement witness. The lower-level declarations remain available for developments that need them.
 
-There are two important boundaries to keep in mind. First, the `.lig` frontend
-is unverified: the theorem concerns the emitted Lean grammar, not the author's
-intention for the source file. Second, the parser theorem begins with tokens, not
-characters: the lexer has its own separate maximal-munch soundness against its
-emitted DFA tables (validated by `native_decide`, see the design's lexer section),
-but that guarantee is not yet threaded into the parser theorem, and the
-bytes-to-characters decoding layer and the `lexre` regex frontend remain
-unverified.
+There are two important boundaries to keep in mind.
+First, the `.lig` frontend is unverified: the theorems and proofs are for the emitted Lean grammar, not the author's intention for the source file. This mismatch is alleviated by the fact that `lean-parser-generator`'s parser is itself proven correct using itself.
+Second, the parser theorem begins with tokens, not characters: the lexer has its own separate maximal-munch soundness against its emitted DFA tables (validated by `native_decide`, see the design's lexer section), but that guarantee is not yet threaded into the parser theorem, and the bytes-to-characters decoding layer and the `lexre` regex frontend remain unverified.
 
 ## Looking at the grammar that was checked
 
-Generated dependent definitions are precise, but a large match over `Fin`
-indices is not pleasant to audit. Every specification module therefore exports
-`verifiedGrammarView` together with `verifiedGrammarView_agrees`.
+Generated dependent definitions are precise, but a large match over `Fin` indices is not pleasant to audit. Every specification module therefore exports `verifiedGrammarView` together with `verifiedGrammarView_agrees`.
 
-The view records terminals, nonterminals, semantic type names, `$`, `S'`, the
-start and EOF mappings, and every production in source order. Semantic actions
-are rendered in a compact form, while a comment points to the actual generated
-Lean declaration used by the grammar:
+The view records terminals, nonterminals, semantic type names, `$`, `S'`, the start and EOF mappings, and every production in source order. Semantic actions are rendered in a compact form, while a comment points to the actual generated Lean declaration used by the grammar:
 
 ```bnf
 [0] expr ::= lhs:expr PLUS rhs:atom    { Ast.add lhs rhs }  -- semanticAction0
@@ -244,17 +255,15 @@ Lean declaration used by the grammar:
 The view can be read in the generated source, or rendered as BNF or Markdown:
 
 ```sh
-lake exe leanparsergenerator --print-grammar bnf grammar/Expr.lig
-lake exe leanparsergenerator --print-grammar markdown grammar/Expr.lig
+lake exe leanparsergenerator --print-grammar bnf MyProject/Expr.lig
+lake exe leanparsergenerator --print-grammar markdown MyProject/Expr.lig
 ```
 
-Rendering is opt-in; normal builds remain quiet. Names, source binders, type
-strings, and action strings are presentation metadata. The structural agreement
-theorem and the referenced Lean action declarations are authoritative.
+Names, binders, type strings, and action strings in the view are for reading only, and Lean does not check them. What Lean checks is the shape of the grammar: `verifiedGrammarView_agrees` proves that the view has the same terminals, nonterminals, start symbol, and productions as the grammar the theorems are about. For what an action does, read the `semanticActionN` declaration named in the comment.
 
 ## Roundtrip proofs (experimental)
 
-These options generate additional modules, and they are experimental. They check that the lexer and the parser are inverses of a printer. This is a different property from the theorems in "What does Lean prove?". None of them is needed to use the parser.
+These experimental options generate additional modules checking that the lexer and the parser are inverses of a printer, i.e. roundtrip through printing and parsing is idempotent. This is a different property from the theorems in [Proven parser properties](#proven-parser-properties). None of them is needed to use the parser.
 
 - `%option roundtrip_lexer` adds `<Base>LexerRoundtrip.lean`. For every token constructor with a fixed spelling, it proves that lexing the spelling gives back the token. For a token that carries a value, it looks for a lexeme the whole lexer maps to that constructor. When it finds none, the module says so in a comment, and the token has no coverage theorem. The statement is about the tokens the lexer can produce, not about all values of the token type: `IDENTIFIER "if"` is a well-typed token that no input lexes to, if `"if"` is folded to a keyword. [`docs/LEXER.md`](docs/LEXER.md) has the details.
 - `%option roundtrip_parser <unparse>` adds `<Base>ParserRoundtrip.lean`. You supply `<unparse> : StartTy → List Tok`. The module proves that `parse (unparse t) = some t`. The proof covers only the ASTs you list in a `corpus` in your `<Base>Unparse` module, not every AST. `#eval guarantees` prints what was proved for that corpus. See DESIGN §16.5.
@@ -264,55 +273,45 @@ These modules are generated next to the others, and `lake build` checks them lik
 
 ## The trust boundary
 
-Pager construction and code emission are untrusted computations. Their output
-must satisfy Boolean safety, completeness, grammar-view, and structural
-refinement checks. If a table is corrupted, or if a generated semantic
-dispatcher no longer agrees with the dependent action, Lean cannot construct the
-refinement witness.
+We reiterate and emphasize what assumptions we make when we claim "generated parsers are proven valid".
 
-Large generated checks are discharged with `native_decide`; this is what makes
-Cedar-sized tables practical to compile. Using `native_decide` trusts evaluation
-by Lean's native compiler. Kernel-checked linking theorems turn the resulting
-Boolean equalities into the parser guarantees described above.
+Pager construction and code emission are untrusted computations. Their output must satisfy Boolean safety, completeness, grammar-view, and structural refinement checks. If a table is corrupted, or if a generated semantic dispatcher no longer agrees with the dependent action, Lean cannot construct the refinement witness.
+
+Large generated checks are discharged with `native_decide`; this is what makes Cedar-sized tables practical to compile. Using `native_decide` trusts evaluation by Lean's native compiler. Kernel-checked linking theorems turn the resulting Boolean equalities into the parser guarantees described above.
 
 The generic proofs contain no `sorry`, custom axioms, or `Classical.choice`.
 
 ## The module system
 
-The library and every generated module use Lean's module system. Each file has a
-`module` header and imports are `public import`. Generated code draws a deliberate
-boundary between its public API and its internals:
+The library and every generated module use Lean's module system. Each file has a `module` header and imports are `public import`. Generated code draws a deliberate boundary between its public API and its internals:
 
-- A generated parser exposes its value type, `run`, and `parse`. Its LR tables,
-  `decode`, and `sem` are internal — a caller that `import`s the parser sees only
-  the API. The paired specification module reaches those internals with `import
-  all` (same package) for its refinement proofs.
-- A generated lexer exposes the token type and `tokenize`/`tokenizeByte`; the DFA
-  tables and validator certificates are internal.
-- The specification module is exposed in full, because its grammar, automaton,
-  dependent types, and the exported corollaries are the API that proofs use.
+- A generated parser exposes its value type, `run`, and `parse`. Its LR tables, `decode`, and `sem` are internal — a caller that `import`s the parser sees only the API. The paired specification module reaches those internals with `import all` (same package) for its refinement proofs.
+- A generated lexer exposes the token type and `tokenize`/`tokenizeByte`; the DFA tables and validator certificates are internal.
+- The specification module is exposed in full, because its grammar, automaton, dependent types, and the exported corollaries are the API that proofs use.
 
-Because `native_decide` runs at the meta phase, a module reduced by a generated
-`native_decide` certificate is also `meta import`ed. None of this changes the
-trust boundary or the axiom budget; the certificates still depend only on
-`propext`, `Classical.choice`, `Quot.sound`, and their own `native_decide` axioms.
+Because `native_decide` runs at the meta phase, a module reduced by a generated `native_decide` certificate is also `meta import`ed. None of this changes the trust boundary or the axiom budget; the certificates still depend only on `propext`, `Classical.choice`, `Quot.sound`, and their own `native_decide` axioms.
 [`docs/DESIGN.md` §16.2](docs/DESIGN.md) describes the design in full.
 
 ## Further reading
 
-[`docs/DESIGN.md`](docs/DESIGN.md) describes the architecture, runtime
-invariants, `.lig` syntax, validation algorithms, refinement proof, and
-inspectable grammar view in detail.
+[`docs/DESIGN.md`](docs/DESIGN.md) describes the architecture, runtime invariants, `.lig` syntax, validation algorithms, refinement proof, and inspectable grammar view in detail.
 
-[`docs/INTEGRATION.md`](docs/INTEGRATION.md) is the practical guide for adding a
-parser to another Lake package and keeping generated modules up to date.
+[`docs/INTEGRATION.md`](docs/INTEGRATION.md) is the practical guide for adding a parser to another Lake package and keeping generated modules up to date.
 
-[`test/README.md`](test/README.md) lists the calculator, IMP, and Cedar
-fixtures, their generated modules, and the commands used to rebuild and test
-them.
+[`test/README.md`](test/README.md) lists the calculator, IMP, and Cedar fixtures, their generated modules, and the commands used to rebuild and test them.
 
 To build this repository and its default regression suites:
 
 ```sh
 lake build
 ```
+
+## Contributing
+
+Source files carry the Cedar copyright notice, and a pre-commit hook checks for it. After cloning, install the hook once:
+
+```sh
+scripts/install-hooks.sh
+```
+
+Git does not version `.git/hooks`, which is why this step is needed. `scripts/check-copyright.sh --all` checks every file, and `scripts/check-copyright.sh --fix --all` adds the notice to files that lack it. Generated files (marked with a `-- Generated by` comment) are skipped. CI runs the same check.

@@ -28,10 +28,10 @@ require LeanParserGenerator from git "ssh://git.amazon.com/pkg/LeanParserGenerat
 
 Use the same Lean toolchain as LeanParserGenerator, then run `lake update`.
 
-## 2. Define the AST and token type
+## 2. Define the AST
 
-The AST and token constructors are ordinary handwritten Lean definitions. For
-example, `MyProject/ExprAst.lean`:
+The AST is an ordinary handwritten Lean definition. For example,
+`MyProject/ExprAst.lean`:
 
 ```lean
 namespace MyProject
@@ -41,17 +41,23 @@ inductive Expr where
   | add : Expr → Expr → Expr
   deriving Repr, BEq
 
+end MyProject
+```
+
+The token type is generated from the `%token` declarations (§3), unless you
+hand-write the lexer. In that case you also write the token type in this module,
+for example:
+
+```lean
 inductive Tok where
   | NUM : Nat → Tok
   | PLUS
   | EOF
   deriving Repr, BEq, Inhabited
-
-end MyProject
 ```
 
-Token constructor names and payload types must agree with the `.lig` `%token`
-declarations. The EOF constructor must agree with `%eof`.
+Its constructor names and payload types must agree with the `.lig` `%token`
+declarations, and the EOF constructor must agree with `%eof`.
 
 ## 3. Choose a lexer regime
 
@@ -62,7 +68,7 @@ generator emits the token type and the tokenizer into `ExprLexer.lean`, and the
 parser modules import it. You write no token type and no lexer by hand.
 
 **Hand-written.** Omit the `%lexer` block. Then you hand-write the token type
-(`MyProject/ExprAst.lean`) and a lexer — any ordinary Lean function producing the
+(next to the AST) and a lexer — any ordinary Lean function producing the
 token list the parser consumes — and `%header` imports them. Use this when the
 token stream comes from an existing lexer or a non-regular tokenizer.
 
@@ -115,7 +121,6 @@ the generated modules and set `%option module_prefix` to their dotted prefix:
 
 ```text
 %option module_prefix MyProject.Generated
-%option roundtrip_lexer
 ```
 
 with `grammar/Expr.lig` moved to `MyProject/Generated/Expr.lig`, then:
@@ -124,9 +129,9 @@ with `grammar/Expr.lig` moved to `MyProject/Generated/Expr.lig`, then:
 lake exe leanparsergenerator MyProject/Generated/Expr.lig
 ```
 
-This writes `MyProject/Generated/ExprVerified.lean`, `ExprParser.lean`,
-`ExprLexer.lean` (the `%lexer` block owns the token type; the parser modules import
-it as `MyProject.Generated.ExprLexer`), and `ExprLexerRoundtrip.lean`. The base
+This writes `MyProject/Generated/ExprVerified.lean`, `ExprParser.lean`, and
+`ExprLexer.lean` (the `%lexer` block owns the token type; the parser modules
+import it as `MyProject.Generated.ExprLexer`). The base
 name is the `.lig` stem, so name the file in the CamelCase you want for the modules.
 
 Alternatively, when the generated files must live apart from the `.lig`, the
@@ -154,21 +159,19 @@ be edited manually.
 Application code normally imports the lexer and parser only:
 
 ```lean
-import MyProject.ExprLexer
+import MyProject.Generated.ExprLexer
 import MyProject.Generated.ExprParser
 
 namespace MyProject
 
-open Lexer
-
 def parseExpr (source : String) : Except Lexer.LexError (Option Expr) := do
-  let tokens ← Lexer.tokenize exprLexer source
-  pure (Generated.ExprParser.parse tokens)
+  let tokens ← ExprLexer.tokenize source
+  pure (ExprParser.parse tokens)
 
 end MyProject
 ```
 
-Use `Generated.ExprParser.run` instead of `parse` when rejection, timeout, and
+Use `ExprParser.run` instead of `parse` when rejection, timeout, and
 internal-error outcomes must remain distinct.
 
 ## 6. Use the generated guarantees
@@ -253,7 +256,7 @@ target generatedExprParser (pkg : NPackage __name__) : Unit := do
 
 @[default_target]
 lean_lib MyProject where
-  roots := #[`MyProject.ExprAst, `MyProject.ExprLexer,
+  roots := #[`MyProject.ExprAst, `MyProject.Generated.ExprLexer,
     `MyProject.Generated.ExprParser,
     `MyProject.App]
   needs := #[generatedExprParser]
@@ -266,14 +269,22 @@ lean_lib MyProject where
 -- the difference is minutes-to-seconds; this repository's `VerifiedMid`/`VerifiedHeavy`
 -- targets are the same pattern (DESIGN §10, §14).
 lean_lib MyProjectVerified where
-  roots := #[`MyProject.ExprAst, `MyProject.ExprLexer,
+  roots := #[`MyProject.ExprAst, `MyProject.Generated.ExprLexer,
     `MyProject.Generated.ExprParser,
     `MyProject.Generated.ExprVerified]
   needs := #[generatedExprParser]
 ```
 
 Build the executable parser with `lake build` (fast, on the default path) and
-re-check the proofs on demand with `lake build MyProjectVerified` (cached).
+re-check the proofs with `lake build MyProjectVerified` (cached).
+
+We recommend running the proof check at a different time than the general build:
+for example, as a separate CI job that runs on changes to the `.lig` file or the
+generator version, and before a release. Checking `ExprVerified` from scratch takes
+minutes for a Cedar-sized grammar (DESIGN §10 measures about 230 s for Cedar and
+about 18 min for C99), and the parser does not import it, so the default build
+succeeds with or without it. That also means the default build does not tell you
+that the proofs hold; only the separate job does.
 
 ### First build and CI
 
