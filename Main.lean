@@ -18,7 +18,7 @@ module
 /-
 `Main.lean` — `leanparsergenerator` CLI.
 
-Primary usage generates both backends from one parse and one Pager construction:
+With explicit paths, one invocation generates both backends from one parse and one Pager construction:
 
 ```
 leanparsergenerator grammar.lig GrammarVerified.lean GrammarParser.lean
@@ -175,7 +175,7 @@ grammar has no `%lexer` block; skipping {lexPath}"
     module names are inferred from the `.lig` stem (`baseOfLig`) and written next to
     the input; `%option module_prefix` supplies the dotted import prefix; a `%lexer`
     block adds the lexer module, and `%option roundtrip_lexer` adds the roundtrip
-    module. This is the primary CLI form. -/
+    module. This is the form that takes only a `.lig` argument. -/
 def generateInferred (ligPath : String) : IO UInt32 := do
   match ← prepareFile ligPath with
   | .error error =>
@@ -380,7 +380,7 @@ def main (args : List String) : IO UInt32 := do
       | some backend, [lig, out, moduleName] => generateFile backend lig out moduleName
       | _, _ => usage
   | [lig] =>
-      -- Primary form: infer all outputs from the `.lig` path and `%option`s.
+      -- Only a `.lig`: infer all outputs from the `.lig` path and `%option`s.
       generateInferred lig
   | [lig, verifiedOut, executableOut] =>
       generateBothFiles lig verifiedOut executableOut

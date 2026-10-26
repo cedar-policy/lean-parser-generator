@@ -365,11 +365,11 @@ factor :: Int
   `Frontend/File.lean` into `Lexer.Regex`
   (`"str"`, `'c'`, `_`, `ε`, `[ … ]`/`[^ … ]`, `*`, `+`, `?`, concatenation,
   `|`, grouping, and `let`-name references). Actions are captured verbatim like
-  production actions. The primary CLI form infers every output from the `.lig`
+  production actions. With only a `.lig` argument, the CLI infers every output from the
   path and its `%option`s: `leanparsergenerator Foo.lig` writes `FooVerified.lean`,
   `FooParser.lean`, `FooLexer.lean` (when a `%lexer` block is present), and
   `FooLexerRoundtrip.lean` (when `%option roundtrip_lexer` is also set) next to the
-  input. Explicit output paths and module names remain accepted as overrides
+  input. Output paths and module names can also be given explicitly
   (`leanparsergenerator Foo.lig FooVerified.lean FooParser.lean FooLexer.lean`, or
   `--lexer Foo.lig FooLexer.lean [Module]`). Either way it builds the DFA and
   validator certificate offline and writes an inspectable `FooLexer.lean` (§9).

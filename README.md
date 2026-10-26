@@ -1,26 +1,14 @@
 # LeanParserGenerator
 
-LeanParserGenerator turns an LR(1) grammar, written in a `.lig` file, into a Lean
-parser. The grammar carries ordinary Lean semantic actions, so parsing can
-produce whatever value is useful to the application: an abstract syntax tree, a
-policy, a command, or simply a number.
+`lean-parser-generator` turns an LR(1) grammar, written in a `.lig` file, into a Lean parser. The grammar carries ordinary Lean semantic actions, so parsing can produce whatever value is useful to the application: an abstract syntax tree, a policy, a command, or simply a number.
 
-The generated parser is meant to be used as ordinary compiled Lean code. Alongside
-it, LeanParserGenerator emits a dependent specification of the same grammar and
-a collection of certificates. Lean checks these certificates and proves that the
-parser agrees with the dependent specification. The construction of the LR(1)
-automaton and the code generator themselves do not have to be trusted.
+The generated parser is meant to be used as ordinary compiled Lean code. Alongside it, `lean-parser-generator` emits a dependent specification of the same grammar and a collection of certificates. Lean checks these certificates and proves that the parser agrees with the dependent specification. The construction of the LR(1) automaton and the code generator themselves do not have to be trusted.
 
-This follows the a-posteriori validation architecture described in
-[Validating LR(1) Parsers](https://xavierleroy.org/publi/validated-parser.pdf),
-which Menhir's verified back end also uses. The implementation here uses Pager's
-LR(1) construction and a small Lean runtime.
+This follows the a-posteriori validation architecture described in [Validating LR(1) Parsers](https://xavierleroy.org/publi/validated-parser.pdf), which Menhir's verified back end also uses. The implementation here uses Pager's LR(1) construction and a small Lean runtime.
 
 ## A first parser
 
-It is easiest to see the pieces in a small example. Suppose that we want to parse
-sums of natural numbers. We begin, in an ordinary Lean module, with the value
-that parsing should produce:
+We show how to use `lean-parser-generator` with a small example. Suppose that we want to parser sums of natural numbers. We begin by writing an ordinary Lean module that describes that the parser should produce (an abstract syntax tree `Ast`):
 
 ```lean
 namespace Expr
@@ -32,20 +20,16 @@ inductive Ast where
 
 end Expr
 ```
-
-The token type belongs to the application, not the generator by default — but a
-grammar can also ask the generator to produce it. There are two regimes, and no
-third:
-
-**Generated lexer.** Add a `%lexer { … }` block to the `.lig`. The generator then
-emits the token type *and* the tokenizer into a lexer module, and the parser
-imports that module for the token type:
-
+Then, we write the `.lig` file that defines our grammar, from which the parser is generated. The file starts with a `%header{...}` block that specifies Lean code that is printed as-is in the generated file. In our example, we import the previous module and open the `Expr` namespace:
 ```text
 %header {
 import MyProject.ExprAst
 open Expr
 }
+```
+
+Next, the user has a choice: they have either defined a token type and a lexer outside the `.lig` definition, and in that case, this should be handled through the imports in the `%header`. Usually, one also want to define tokens and lexing at the same time as defining the grammar. `lean-parser-generator` looks for a `%lexer {...}` block in the `.lig` file to generate a lexer:
+```text
 %tokentype Tok
 %token <Nat> NUM
 %token PLUS
@@ -58,6 +42,13 @@ open Expr
   | (' ' | '\t' | '\n')+ => skip
   eof => { Tok.EOF }
 }
+```
+One `%tokentype` declaration and a few `%token` definition precede the `%lexer` block itself. The type of the tokens is generated from the `%tokentype` and `%token` declarations, and then the generated type can be used (as `<token type>.<token kind>`) inside the lexer definition.
+
+The body of the `%lexer` block is a list of rules. A `let` line names a regular expression so that rules can reuse it (`digit` above). Each rule has the form `| regex => action`. A regex is built from quoted strings, character classes (`['0'-'9']`, or `[^ '\n']` for the complement), sequencing, alternation with `|`, grouping with parentheses, and the postfix operators `*` and `+`. Writing `as s` after a regex binds the matched text to `s`, a `String`. The action is either `skip`, which discards the match (whitespace and comments), or a Lean expression that builds a token. The lexer takes the longest match at each position, and a tie goes to the earlier rule. The `eof` rule gives the token that ends the stream. The full syntax, including lexer modes and the remaining regex operators, is in [DESIGN §8](docs/DESIGN.md) and [`docs/LEXER.md`](docs/LEXER.md).
+
+Finally, the main part of the `.lig` file is the grammar definition itself. A grammar has a start symbol designated by `%start` and then grammar productions for each non-terminal symbol:
+```text
 %start expr
 %%
 expr :: Ast
@@ -67,39 +58,7 @@ atom :: Ast
   | value=NUM              { Ast.number value }
 ```
 
-The `%token` declarations are the single source of truth for the token type: the
-generated lexer module defines `inductive Tok` from them (deriving `Repr`, `BEq`,
-`Inhabited`, `DecidableEq`), builds and validates the DFA tables offline, and
-exports `tokenize`. The lexer is generated together with the parser (§Generating).
-Lexer-only helpers (keyword folding, string stripping) go in a `%lexerheader { … }`
-block, copied only into the lexer module.
-
-**Hand-written lexer.** Omit the `%lexer` block. Then the token type and the lexer
-are ordinary hand-written Lean that `%header` imports — a lexer is just a function
-producing the token list the parser consumes. This is the right regime when the
-token stream comes from an existing lexer or a non-regular tokenizer.
-
-At present the lexer's emitted DFA tables are validated for maximal-munch soundness
-by `native_decide`, discharged for all three generated lexers (calculator, Cedar,
-CedarSchema). The validator conditions are interval arithmetic over
-character classes, so there is no code-point budget gate — Unicode-wide classes are
-handled by testing one representative per boundary cell, not per code point. The
-emitted `tokenize` runs a fast flat `state × class` scanner over a `String.Pos`
-cursor, proved equal to the derivative-level specification tokenizer, so it inherits
-that soundness (see the design's lexer section). The remaining unverified boundary
-is the bytes-to-characters layer that feeds the scanner.
-
-Each lexer also emits a byte-level scanner (`tokenizeByte`, over `String.toUTF8` by
-byte index) that folds the UTF-8 decode into the scan. It is ~1.15–1.18x faster on the
-Cedar corpus (tokens byte-for-byte identical) and is validated per lexer by
-`native_decide` (`byteValidated{m}`), with the byte-scan simulation of the flat scanner
-proved up to that Boolean. The proved `tokenize` stays on the flat `String.Pos`
-scanner; `tokenizeByte` is the validated fast path (see the design's lexer section).
-
-
-The `%header` block is copied into the generated modules. It should therefore
-import every type and definition used by token payloads, rule result types, or
-semantic actions.
+The `%token` declarations are the single source of truth for the token type. From them the generated lexer module defines `inductive Tok` (deriving `Repr`, `BEq`, `Inhabited`, and `DecidableEq`), builds the DFA tables offline, validates them, and exports `tokenize`. The lexer is generated together with the parser (see "Generating and calling the parser" below). Helpers that only the lexer needs, such as keyword folding or string unquoting, go in a `%lexerheader { … }` block, which is copied only into the lexer module.
 
 ## Generating and calling the parser
 
@@ -111,34 +70,16 @@ lake build leanparsergenerator
 lake exe leanparsergenerator grammar/Expr.lig
 ```
 
-From the input path alone the generator infers its outputs, writing them next to
-the `.lig`: `ExprVerified.lean`, `ExprParser.lean`, `ExprLexer.lean` (when the
-grammar has a `%lexer` block), `ExprLexerRoundtrip.lean` (when the grammar also
-sets `%option roundtrip_lexer`), and `ExprParserRoundtrip.lean` (when the grammar
-sets `%option roundtrip_parser <printer>`). The base name comes from the `.lig`
-stem (`Expr.lig` → `Expr`), so a grammar file named in the CamelCase you want for
-the modules produces those module names directly.
+The generator infers the outputs from the input path, writing next to the `.lig` file: for example, the outputs above are `ExprVerified.lean`, `ExprParser.lean`, `ExprLexer.lean` (when the grammar has a `%lexer` block). The base name comes from the `.lig` stem (`Expr.lig` → `Expr`), so a grammar file named in the CamelCase you want for the modules produces those module names directly.
 
-Three `%option` directives shape this. `%option module_prefix <path>` is the dotted
-prefix the modules live under inside a larger module tree — with
-`%option module_prefix myproject.expr` the parser imports its lexer as
-`myproject.expr.ExprLexer` and a caller imports `myproject.expr.ExprParser`;
-without it the modules are top-level. `%option roundtrip_lexer` adds the lexer
-roundtrip module (printer/lexer inverse on tokens). `%option roundtrip_parser
-<unparse>` names a user token generator `StartTy → List Tok` and adds the parser
-roundtrip module, which proves that generating an AST's tokens and parsing them
-back returns that AST (DESIGN §16.5); the module is hole-free, proving the
-roundtrip over a `corpus` of ASTs you list in your `<Base>Unparse` module and
-printing what it proved with `#eval guarantees`. Adding `%option roundtrip_format
-<renderTok>` (a complete token renderer) also proves a formatter-idempotence lemma
-— formatting the token stream with whitespace re-lexes to the same tokens — and the
-full AST↔source roundtrip, the composition of the two roundtrips, both hole-free
-over the same corpus. The older explicit-argument forms (spelling out each output
-path, module name, and the parser's import path) still work as overrides; the
-complete form is shown in [`docs/INTEGRATION.md`](docs/INTEGRATION.md).
+The outputs can be controlled by different `%option` directives in the `.lig` file:
+- `%option module_prefix <path>` is the dotted prefix the modules live under inside a larger module tree — with `%option module_prefix myproject.expr` the parser imports its lexer as `myproject.expr.ExprLexer` and a caller imports `myproject.expr.ExprParser`; without it the modules are top-level.
 
-Application code imports the generated parser and lexer and calls `parse` on the
-tokens the lexer produces:
+- `%option roundtrip_lexer`, `%option roundtrip_parser <unparse>`, and `%option roundtrip_format <renderTok>` generate extra proof modules. They are experimental. They are not needed to get a working parser, and they are described in "Roundtrip proofs (experimental)" below.
+
+Alternatively, the command line can spell out each output path, module name, and import path. This is useful when the generated files must live apart from the `.lig` file. [`docs/INTEGRATION.md`](docs/INTEGRATION.md) shows the complete form.
+
+Application code imports the generated parser and lexer and calls `parse` on the tokens produced by the lexer:
 
 ```lean
 import ExprLexer
@@ -149,27 +90,23 @@ def parseExpr (source : String) : Except Lexer.LexError (Option Expr.Ast) := do
   pure (ExprParser.parse tokens)
 ```
 
-`ExprParser` already imports `ExprLexer` for the token type, so a caller that only
-needs `parse` can import `ExprParser` alone. In the hand-written regime the caller
-imports the application's own token module and lexer instead.
+`ExprParser` already imports `ExprLexer` for the token type, so a caller that only needs `parse` can import `ExprParser` alone. In the hand-written regime the caller imports the application's own token module and lexer instead.
 
-`parse` returns `some value` when the input is accepted and `none` otherwise.
-The optional logarithmic-fuel argument, whose default is `20`, controls the
-maximum number of parser steps; a value `n` permits up to `2^n` steps.
+`parse` returns `some value` when the input is accepted and `none` otherwise. The optional logarithmic-fuel argument, whose default is `20`, controls the maximum number of parser steps; a value `n` permits up to `2^n` steps.
 
-Sometimes an application must distinguish a syntax error from fuel exhaustion,
-or inspect an unexpected internal table error. In that case, use `run` instead:
+Sometimes an application must distinguish a syntax error from fuel exhaustion, or inspect an unexpected internal table error. In that case, use `run` instead:
 
 ```lean
 ExprParser.run tokens
 ```
 
-Its result distinguishes `.ok`, `.reject`, `.timeout`, and `.err`. For generated,
-validated parsers, the `.err` case is proved unreachable.
+Its result distinguishes `.ok`, `.reject`, `.timeout`, and `.err`. For generated, validated parsers, the `.err` case is proved unreachable.
 
-The parser treats a finite list as an EOF-padded stream. Thus a lexer may append
-the declared EOF token—as the lexer above does—and exhausted input is also padded
-with that same token.
+The parser treats a finite list as an EOF-padded stream. Thus a lexer may append the declared EOF token—as the lexer above does—and exhausted input is also padded with that same token.
+
+## Using a hand-written lexer
+
+A `.lig` file does not need a `%lexer` block. Without one, the generator emits no lexer module, and the token type and the lexer are ordinary hand-written Lean that `%header` imports. The lexer is just a function that produces the token list the parser consumes. This is the right choice when the tokens come from an existing lexer, or when the token language is not regular (the `imp` and `c99` fixtures in `test/` do this). A hand-written lexer gets no maximal-munch guarantee from Lean, and the parser theorem below is unaffected by that, since it starts at tokens. Wrap each token with `Runtime.Positioned.dummy` if there are no real source positions (see the next section).
 
 ## Source positions
 
@@ -206,6 +143,26 @@ consistent with the verified engine (`diagnose_run_agrees`); see
 unchanged: spans ride in the executable parser's value and are erased on the
 dependent side, so the soundness, completeness, and error-freedom results below
 are exactly as before.
+
+## Putting a generated parser in an existing project
+
+In a real repository, the handwritten AST, token type, and lexer live beside the
+rest of the application. The `.lig` header imports them. The generated parser
+and specification modules can live under the application's normal module prefix
+and can be imported like any other Lean source files.
+
+A Lake target can fetch the generator executable from the dependency, compare
+the modification times of the grammar, generator, and generated files, and
+regenerate both outputs before the library is compiled. There is one practical
+bootstrap detail: Lake discovers modules before ordinary library jobs run. If
+generated modules are not committed, a clean checkout must generate them once
+before the first library build. If they are committed—as is often convenient for
+review—plain `lake build` is enough and stale files are refreshed automatically.
+
+[`docs/INTEGRATION.md`](docs/INTEGRATION.md) gives a complete, tested setup. It
+includes local and pinned Git dependencies, source layout, the full generator
+command, parser and proof imports, a Lake 4.33 target, multiple-output mtime
+checks, and clean-checkout CI commands.
 
 ## Why are there two generated modules?
 
@@ -295,25 +252,15 @@ Rendering is opt-in; normal builds remain quiet. Names, source binders, type
 strings, and action strings are presentation metadata. The structural agreement
 theorem and the referenced Lean action declarations are authoritative.
 
-## Putting a generated parser in an existing project
+## Roundtrip proofs (experimental)
 
-In a real repository, the handwritten AST, token type, and lexer live beside the
-rest of the application. The `.lig` header imports them. The generated parser
-and specification modules can live under the application's normal module prefix
-and can be imported like any other Lean source files.
+These options generate additional modules, and they are experimental. They check that the lexer and the parser are inverses of a printer. This is a different property from the theorems in "What does Lean prove?". None of them is needed to use the parser.
 
-A Lake target can fetch the generator executable from the dependency, compare
-the modification times of the grammar, generator, and generated files, and
-regenerate both outputs before the library is compiled. There is one practical
-bootstrap detail: Lake discovers modules before ordinary library jobs run. If
-generated modules are not committed, a clean checkout must generate them once
-before the first library build. If they are committed—as is often convenient for
-review—plain `lake build` is enough and stale files are refreshed automatically.
+- `%option roundtrip_lexer` adds `<Base>LexerRoundtrip.lean`. For every token constructor with a fixed spelling, it proves that lexing the spelling gives back the token. For a token that carries a value, it looks for a lexeme the whole lexer maps to that constructor. When it finds none, the module says so in a comment, and the token has no coverage theorem. The statement is about the tokens the lexer can produce, not about all values of the token type: `IDENTIFIER "if"` is a well-typed token that no input lexes to, if `"if"` is folded to a keyword. [`docs/LEXER.md`](docs/LEXER.md) has the details.
+- `%option roundtrip_parser <unparse>` adds `<Base>ParserRoundtrip.lean`. You supply `<unparse> : StartTy → List Tok`. The module proves that `parse (unparse t) = some t`. The proof covers only the ASTs you list in a `corpus` in your `<Base>Unparse` module, not every AST. `#eval guarantees` prints what was proved for that corpus. See DESIGN §16.5.
+- `%option roundtrip_format <renderTok>` takes a complete token renderer and adds two more theorems over the same corpus: formatting the token stream with whitespace and lexing it again gives the same tokens, and the composition of the two roundtrips (AST to source text and back to the AST).
 
-[`docs/INTEGRATION.md`](docs/INTEGRATION.md) gives a complete, tested setup. It
-includes local and pinned Git dependencies, source layout, the full generator
-command, parser and proof imports, a Lake 4.33 target, multiple-output mtime
-checks, and clean-checkout CI commands.
+These modules are generated next to the others, and `lake build` checks them like any other module.
 
 ## The trust boundary
 
