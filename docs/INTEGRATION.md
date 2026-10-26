@@ -23,7 +23,7 @@ For a Git dependency, pin an immutable revision rather than relying on a moving
 branch:
 
 ```lean
-require LeanParserGenerator from git "ssh://git.amazon.com/pkg/LeanParserGenerator" @ "<commit-hash>"
+require LeanParserGenerator from git "https://github.com/cedar-policy/lean-parser-generator" @ "<commit-hash>"
 ```
 
 Use the same Lean toolchain as LeanParserGenerator, then run `lake update`.
