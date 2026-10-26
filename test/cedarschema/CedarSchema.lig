@@ -1,0 +1,301 @@
+%header {
+import cedarschema.CedarSchemaAst
+open CedarSchema
+}
+%option module_prefix cedarschema
+%option roundtrip_lexer
+%option roundtrip_parser unparseSchema
+%option roundtrip_format renderTok
+%lexerheader {
+/-- Classify an identifier exactly as `grammar.lalrpop`'s `match {}` block. -/
+def keywordOrIdentifier (value : String) : Tok :=
+  match value with
+  | "namespace" => .NAMESPACE
+  | "entity" => .ENTITY
+  | "in" => .IN
+  | "type" => .TYPE
+  | "Set" => .SET
+  | "appliesTo" => .APPLIESTO
+  | "principal" => .PRINCIPAL
+  | "action" => .ACTION
+  | "resource" => .RESOURCE
+  | "context" => .CONTEXT
+  | "attributes" => .ATTRIBUTES
+  | "tags" => .TAGS
+  | "Long" => .LONG
+  | "String" => .STRING
+  | "Bool" => .BOOL
+  | "enum" => .ENUM
+  | _ => .IDENTIFIER value
+
+/-- Remove only the surrounding quotes; escape sequences remain raw CST text. -/
+def stripStringQuotes (value : String) : String :=
+  ((value.drop 1).dropEnd 1).toString
+}
+%tokentype Tok
+%token NAMESPACE ENTITY IN TYPE SET APPLIESTO
+%token PRINCIPAL ACTION RESOURCE CONTEXT
+%token ATTRIBUTES TAGS LONG STRING BOOL ENUM
+%token <String> IDENTIFIER
+%token <Nat> NUMBER
+%token <String> STRINGLIT
+%token COMMA SEMICOLON COLON COLONCOLON
+%token LBRACE RBRACE LBRACKET RBRACKET
+%token LANGLE RANGLE EQUALS QUESTION AT LPAREN RPAREN
+%token EOF
+%eof EOF
+%lexer {
+  let ws = ' ' | '\t' | '\n' | '\r'
+  let digit = ['0'-'9']
+  let identStart = ['a'-'z' 'A'-'Z' '_']
+  let identCont = ['a'-'z' 'A'-'Z' '0'-'9' '_']
+  | ws+                                             => skip
+  | "//" [^ '\n' '\r']* ("\n" | "\r")*              => skip
+  | identStart identCont* as value                  => { keywordOrIdentifier value }
+  | digit+ as value                                 => { Tok.NUMBER value.toNat! }
+  | "\"" (("\\" [^ '\n']) | [^ '"' '\\'])* "\"" as value => { Tok.STRINGLIT (stripStringQuotes value) }
+  | "::"                                            => { Tok.COLONCOLON }
+  | ","                                             => { Tok.COMMA }
+  | ";"                                             => { Tok.SEMICOLON }
+  | ":"                                             => { Tok.COLON }
+  | "{"                                             => { Tok.LBRACE }
+  | "}"                                             => { Tok.RBRACE }
+  | "["                                             => { Tok.LBRACKET }
+  | "]"                                             => { Tok.RBRACKET }
+  | "<"                                             => { Tok.LANGLE }
+  | ">"                                             => { Tok.RANGLE }
+  | "="                                             => { Tok.EQUALS }
+  | "?"                                             => { Tok.QUESTION }
+  | "@"                                             => { Tok.AT }
+  | "("                                             => { Tok.LPAREN }
+  | ")"                                             => { Tok.RPAREN }
+  eof => { Tok.EOF }
+}
+%start schema
+%%
+
+-- Schema := Namespace*
+schema :: Schema
+  | ns=namespace_list                          { Schema.mk ns }
+namespace_list :: List (Annotated Namespace)
+  |                                            { [] }
+  | n=namespace rest=namespace_list            { n :: rest }
+
+-- Annotation := '@' AnyIdent ('(' Str ')')?
+annotation :: Annotation
+  | AT key=any_ident                           { Annotation.mk key none }
+  | AT key=any_ident LPAREN value=str RPAREN   { Annotation.mk key (some value) }
+annotation_list :: List Annotation
+  |                                            { [] }
+  | a=annotation rest=annotation_list          { a :: rest }
+
+-- Namespace := Annotated<Namedspace> | Annotated<Decl>
+-- Namedspace := 'namespace' Path '{' Annotated<Decl>* '}'
+-- Both alternatives begin with Annotation*, so the annotations are shared and
+-- the choice is driven by the token after them (NAMESPACE vs a Decl starter).
+namespace :: Annotated Namespace
+  | annotations=annotation_list body=namespace_body
+      { Annotated.mk body annotations }
+namespace_body :: Namespace
+  | NAMESPACE p=path LBRACE decls=annotated_decl_list RBRACE
+      { Namespace.mk (some p) decls }
+  | d=annotated_decl_bare
+      { Namespace.mk none [d] }
+
+-- Annotated<Decl>* : declarations inside a namespace body, each with its own
+-- leading Annotation*.
+annotated_decl_list :: List (Annotated Declaration)
+  |                                            { [] }
+  | d=annotated_decl rest=annotated_decl_list  { d :: rest }
+annotated_decl :: Annotated Declaration
+  | annotations=annotation_list d=decl         { Annotated.mk d annotations }
+-- The top-level bare declaration form of a Namespace already consumed its
+-- Annotation* in `namespace`, so it takes a decl with no further annotations.
+annotated_decl_bare :: Annotated Declaration
+  | d=decl                                     { Annotated.mk d [] }
+
+-- Decl := Entity | Action | TypeDecl
+decl :: Declaration
+  | e=entity                                   { Declaration.entity e }
+  | a=action                                   { Declaration.action a }
+  | t=type_decl                                { Declaration.type t }
+
+-- Entity :=
+--     'entity' Idents ('in' EntTypes)? ('='? '{' AttrDecls? '}')? ('tags' Type)? ';'
+--   | 'entity' Idents 'enum' '[' Eids ']' ';'
+entity :: EntityDecl
+  | ENTITY names=idents members=opt_member_of body=opt_entity_body tags=opt_tags SEMICOLON
+      { EntityDecl.standard (StandardEntityDecl.mk names members body tags) }
+  | ENTITY names=idents ENUM LBRACKET choices=eids RBRACKET SEMICOLON
+      { EntityDecl.enum (EnumEntityDecl.mk names choices) }
+opt_member_of :: List Path
+  |                                            { [] }
+  | IN ets=ent_types                           { ets }
+opt_entity_body :: List (Annotated AttrDecl)
+  |                                            { [] }
+  | opt_eq LBRACE attrs=opt_attr_decls RBRACE  { attrs }
+opt_eq :: Unit
+  |                                            { () }
+  | EQUALS                                     { () }
+opt_tags :: Option SType
+  |                                            { none }
+  | TAGS t=type                                { some t }
+
+-- Action := 'action' Names ('in' QualNameOrQualNames)?
+--           ('appliesTo' '{' AppDecls '}')? ('attributes' '{' '}')? ';'
+action :: ActionDecl
+  | ACTION names=names parents=opt_parents apps=opt_applies_to opt_action_attrs SEMICOLON
+      { ActionDecl.mk names parents apps }
+opt_parents :: Option (List QualName)
+  |                                            { none }
+  | IN qns=qual_name_or_qual_names             { some qns }
+opt_applies_to :: Option (List AppDecl)
+  |                                            { none }
+  | APPLIESTO LBRACE ds=app_decls RBRACE       { some ds }
+opt_action_attrs :: Unit
+  |                                            { () }
+  | ATTRIBUTES LBRACE RBRACE                   { () }
+
+-- TypeDecl := 'type' Ident '=' Type ';'
+type_decl :: TypeDecl
+  | TYPE i=ident EQUALS t=type SEMICOLON        { TypeDecl.mk i t }
+
+-- AppDecls := (('principal'|'resource') ':' EntTypes | 'context' ':' (Path|RecType))
+--             [',' | ',' AppDecls]
+app_decls :: List AppDecl
+  | pr=principal_or_resource COLON ets=ent_types rest=app_decls_tail
+      { AppDecl.pr pr (someIfNonEmpty ets) :: rest }
+  | CONTEXT COLON p=path rest=app_decls_tail
+      { AppDecl.contextPath p :: rest }
+  | CONTEXT COLON LBRACE attrs=opt_attr_decls RBRACE rest=app_decls_tail
+      { AppDecl.contextRecord attrs :: rest }
+app_decls_tail :: List AppDecl
+  |                                            { [] }
+  | COMMA                                      { [] }
+  | COMMA ds=app_decls                         { ds }
+
+-- Type := Path | 'Set' '<' Type '>' | '{' AttrDecls? '}'
+type :: SType
+  | p=path                                     { SType.ident p }
+  | SET LANGLE t=type RANGLE                   { SType.set t }
+  | LBRACE attrs=opt_attr_decls RBRACE         { SType.record attrs }
+
+-- AttrDecls := Annotation* Name '?'? ':' Type [',' | ',' AttrDecls]
+opt_attr_decls :: List (Annotated AttrDecl)
+  |                                            { [] }
+  | ds=attr_decls                              { ds }
+attr_decls :: List (Annotated AttrDecl)
+  | annotations=annotation_list name=name req=opt_question COLON ty=type rest=attr_decls_tail
+      { Annotated.mk (AttrDecl.mk name req ty) annotations :: rest }
+attr_decls_tail :: List (Annotated AttrDecl)
+  |                                            { [] }
+  | COMMA                                      { [] }
+  | COMMA ds=attr_decls                        { ds }
+-- '?'? : present means optional attribute (required := false).
+opt_question :: Bool
+  |                                            { true }
+  | QUESTION                                   { false }
+
+-- Ident := AnyIdent (reserved-word rejection dropped)
+ident :: Ident
+  | value=any_ident                            { value }
+
+-- AnyIdent := every keyword, or IDENTIFIER
+any_ident :: Ident
+  | NAMESPACE                                  { .namespaceKw }
+  | ENTITY                                     { .entityKw }
+  | SET                                        { .setKw }
+  | APPLIESTO                                  { .appliesToKw }
+  | PRINCIPAL                                  { .principalKw }
+  | ACTION                                     { .actionKw }
+  | RESOURCE                                   { .resourceKw }
+  | CONTEXT                                    { .contextKw }
+  | ATTRIBUTES                                 { .attributesKw }
+  | TAGS                                       { .tagsKw }
+  | BOOL                                       { .boolKw }
+  | LONG                                       { .longKw }
+  | STRING                                     { .stringKw }
+  | TYPE                                       { .typeKw }
+  | IN                                         { .inKw }
+  | ENUM                                       { .enumKw }
+  | value=IDENTIFIER                           { .ident value }
+
+-- Str := STRINGLIT (unescaped by the lexer; error path dropped)
+str :: String
+  | value=STRINGLIT                            { value }
+
+-- Eid := Str
+eid :: Eid
+  | value=str                                  { Eid.mk value }
+
+-- Name := Ident | Str
+name :: String
+  | id=ident                                   { identToString id }
+  | value=str                                  { value }
+
+-- QualName := Name | PathInline '::' Str
+-- Both forms are folded into one left-factored spine so that every '::' is
+-- shifted and the ident-vs-str choice after a '::' is made with one token of
+-- lookahead. `qual_tail` returns a function from the accumulated path prefix
+-- (idents seen so far, most significant first) to the finished QualName.
+qual_name :: QualName
+  | value=str                                  { QualName.unqualified value }
+  | first=ident rest=qual_tail                 { rest [first] }
+qual_tail :: (List Ident → QualName)
+  | -- end of an unqualified name: the single ident is the whole name
+                                               { fun path => QualName.unqualified (identToString (pathBasename path)) }
+  | COLONCOLON value=str                       { fun path => QualName.qualified (pathFromComponents path) value }
+  | COLONCOLON next=ident rest=qual_tail       { fun path => rest (path ++ [next]) }
+
+-- Path := PathInline; PathInline := Ident ('::' Ident)*
+-- Same left-factoring: a Path is a nonempty '::'-separated ident spine.
+path :: Path
+  | first=ident rest=path_tail                 { rest [first] }
+path_tail :: (List Ident → Path)
+  |                                            { fun components => pathFromComponents components }
+  | COLONCOLON next=ident rest=path_tail       { fun components => rest (components ++ [next]) }
+-- `path_inline` is kept as an alias used by other rules that referenced it.
+path_inline :: Path
+  | p=path                                     { p }
+
+-- NonEmptyComma<Ident> : Idents := Ident (',' Ident)*  (no trailing comma)
+idents :: List Ident
+  | i=ident                                    { [i] }
+  | i=ident COMMA rest=idents                  { i :: rest }
+
+-- NonEmptyComma<Name> : Names
+names :: List String
+  | n=name                                     { [n] }
+  | n=name COMMA rest=names                    { n :: rest }
+
+-- NonEmptyComma<QualName> : QualNames
+qual_names :: List QualName
+  | q=qual_name                                { [q] }
+  | q=qual_name COMMA rest=qual_names          { q :: rest }
+
+-- NonEmptyComma<Eid> : Eids
+eids :: List Eid
+  | e=eid                                      { [e] }
+  | e=eid COMMA rest=eids                      { e :: rest }
+
+principal_or_resource :: PR
+  | PRINCIPAL                                  { .principal }
+  | RESOURCE                                   { .resource }
+
+-- EntTypes := Path | '[' Comma<Path> ']'
+ent_types :: List Path
+  | et=path                                    { [et] }
+  | LBRACKET ets=path_comma_list RBRACKET      { ets }
+-- Comma<Path> : zero or more, optional trailing comma
+path_comma_list :: List Path
+  |                                            { [] }
+  | p=path rest=path_comma_tail                { p :: rest }
+path_comma_tail :: List Path
+  |                                            { [] }
+  | COMMA                                      { [] }
+  | COMMA p=path rest=path_comma_tail          { p :: rest }
+
+-- QualNameOrQualNames := QualName | '[' QualNames ']'
+qual_name_or_qual_names :: List QualName
+  | qn=qual_name                               { [qn] }
+  | LBRACKET ns=qual_names RBRACKET            { ns }

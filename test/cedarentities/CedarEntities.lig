@@ -1,0 +1,182 @@
+%header {
+import cedarentities.CedarEntitiesAst
+open Entities
+}
+%option module_prefix cedarentities
+%option roundtrip_lexer
+%lexerheader {
+/-- Classify an identifier: reserved words map to their keyword token, everything
+else to `IDENTIFIER` carrying the proof it is not a keyword. -/
+def keywordOrIdentifier (value : String) : Tok :=
+  match value with
+  | "namespace" => .NAMESPACE
+  | "instance" => .INSTANCE
+  | "in" => .IN
+  | "tags" => .TAGS
+  | "true" => .TRUE
+  | "false" => .FALSE
+  | _ =>
+    if h : value ∈ keywords then
+      -- Unreachable: every keyword is matched above. Fall back rather than
+      -- fabricating a membership proof.
+      .NAMESPACE
+    else
+      .IDENTIFIER ⟨value, h⟩
+
+/-- Remove only the surrounding quotes. Escape sequences remain raw text. -/
+def stripStringQuotes (value : String) : String :=
+  ((value.drop 1).dropEnd 1).toString
+}
+%tokentype Tok
+%token NAMESPACE INSTANCE IN TAGS TRUE FALSE
+%token LBRACE RBRACE SEMICOLON COLON LBRACKET RBRACKET LPAREN RPAREN COLONCOLON
+%token COMMA EQUALS MINUS
+%token <{s : String // s ∉ keywords}> IDENTIFIER
+%token <Nat> NUMBER
+%token <String> STRINGLIT
+%token EOF
+%eof EOF
+%lexer {
+  let ws = ' ' | '\t' | '\n' | '\r'
+  let digit = ['0'-'9']
+  let identStart = ['a'-'z' 'A'-'Z' '_']
+  let identCont = ['a'-'z' 'A'-'Z' '_' '0'-'9']
+  | ws+                                                   => skip
+  | "//" [^ '\n' '\r']* ("\n" | "\r")*                    => skip
+  | identStart identCont* as value                        => { keywordOrIdentifier value }
+  | digit+ as value                                       => { Tok.NUMBER value.toNat! }
+  | "\"" (("\\" [^ '\n']) | [^ '"' '\\'])* "\"" as value  => { Tok.STRINGLIT (stripStringQuotes value) }
+  | "::"                                                  => { Tok.COLONCOLON }
+  | ","                                                   => { Tok.COMMA }
+  | ";"                                                   => { Tok.SEMICOLON }
+  | ":"                                                   => { Tok.COLON }
+  | "="                                                   => { Tok.EQUALS }
+  | "-"                                                   => { Tok.MINUS }
+  | "("                                                   => { Tok.LPAREN }
+  | ")"                                                   => { Tok.RPAREN }
+  | "{"                                                   => { Tok.LBRACE }
+  | "}"                                                   => { Tok.RBRACE }
+  | "["                                                   => { Tok.LBRACKET }
+  | "]"                                                   => { Tok.RBRACKET }
+  eof => { Tok.EOF }
+}
+%start entities
+%%
+
+-- Entities := { NamespaceOrEntityInstanceDeclaration }
+entities :: Entities
+  | ds=list(entities_decl)                     { Entities.mk ds }
+
+-- NamespaceOrEntityInstanceDeclaration := Namespace | EntityInstanceDeclaration
+entities_decl :: EntitiesDecl
+  | ns=namespace                               { EntitiesDecl.namespaceDecl ns }
+  | inst=instance_decl                         { EntitiesDecl.instanceDecl inst }
+
+-- Namespace := 'namespace' Path '{' { EntityInstanceDeclaration } '}'
+namespace :: EntitiesNamespace
+  | NAMESPACE p=path LBRACE insts=list(instance_decl) RBRACE
+      { EntitiesNamespace.mk (some (pathToString p)) insts }
+
+-- EntityInstanceDeclaration :=
+--   'instance' EntityRef ['in' EntityRefOrRefs] [['='] Record] ['tags' Tags] ';'
+instance_decl :: Annotated EntityInstance
+  | INSTANCE r=entity_ref parents=opt_parents attrs=opt_record tags=opt_tags SEMICOLON
+      { annotate (EntityInstance.mk r parents attrs tags) }
+
+-- ['in' EntityRefOrRefs]
+opt_parents :: List EntityReference
+  |                                            { [] }
+  | IN rs=entity_ref_or_refs                   { rs }
+
+-- EntityRefOrRefs := EntityRef | '[' [ Comma<EntityRef> ] ']'
+-- The RFC allows nested brackets; the examples use a flat comma list, which is
+-- what is modelled here (a parent list is a set of entity references).
+entity_ref_or_refs :: List EntityReference
+  | r=entity_ref                               { [r] }
+  | LBRACKET rs=entity_ref_comma_list RBRACKET { rs }
+entity_ref_comma_list :: List EntityReference
+  |                                            { [] }
+  | r=entity_ref rest=entity_ref_comma_tail    { r :: rest }
+entity_ref_comma_tail :: List EntityReference
+  |                                            { [] }
+  | COMMA                                      { [] }
+  | COMMA r=entity_ref rest=entity_ref_comma_tail { r :: rest }
+
+-- [['='] Record] : an optional record body, with an optional leading '='.
+opt_record :: List (String × EntityValue)
+  |                                            { [] }
+  | opt_eq LBRACE kvs=key_values RBRACE        { kvs }
+opt_eq :: Unit
+  |                                            { () }
+  | EQUALS                                     { () }
+
+-- ['tags' Tags] ; Tags := Record
+opt_tags :: List (String × EntityValue)
+  |                                            { [] }
+  | TAGS LBRACE kvs=key_values RBRACE          { kvs }
+
+-- EntityRef := Path '::' STR.  Path := IDENT ('::' IDENT)*.  So an entity ref is
+-- an ident spine whose final '::' is followed by a string rather than an ident.
+-- Left-factored: read the first ident, then a tail that either continues the
+-- spine (`:: IDENT`) or terminates it (`:: STR`). `entity_ref_tail` maps the
+-- accumulated type-path prefix to the finished reference.
+entity_ref :: EntityReference
+  | first=IDENTIFIER rest=entity_ref_tail      { rest [first.val] }
+entity_ref_tail :: (List String → EntityReference)
+  | COLONCOLON id=STRINGLIT                     { fun path => mkEntityRef path id }
+  | COLONCOLON next=IDENTIFIER rest=entity_ref_tail
+      { fun path => rest (path ++ [next.val]) }
+
+-- Path := IDENT ('::' IDENT)* (used only for namespace names here).
+path :: List String
+  | first=IDENTIFIER rest=path_tail            { first.val :: rest }
+path_tail :: List String
+  |                                            { [] }
+  | COLONCOLON next=IDENTIFIER rest=path_tail  { next.val :: rest }
+
+-- Record := '{' [ KeyValues ] '}'; KeyValues := Key ':' Value [',' | ',' KeyValues]
+key_values :: List (String × EntityValue)
+  |                                            { [] }
+  | k=key COLON v=value rest=key_values_tail   { (k, v) :: rest }
+key_values_tail :: List (String × EntityValue)
+  |                                            { [] }
+  | COMMA                                      { [] }
+  | COMMA k=key COLON v=value rest=key_values_tail { (k, v) :: rest }
+
+-- Key := IDENT | STR
+key :: String
+  | id=IDENTIFIER                              { id.val }
+  | s=STRINGLIT                                { s }
+
+-- Value : the value subset used by the entity format. A value that begins with
+-- an identifier is either an entity reference (`Path '::' STR`) or an extension
+-- call (`Path '(' args ')'`); both share the ident-spine prefix, so they are
+-- left-factored through `path_value_tail`.
+value :: EntityValue
+  | s=STRINGLIT                                { EntityValue.evString s }
+  | n=NUMBER                                   { mkLong n }
+  | MINUS n=NUMBER                             { mkNegLong n }
+  | TRUE                                       { EntityValue.evBool true }
+  | FALSE                                      { EntityValue.evBool false }
+  | LBRACKET vs=value_comma_list RBRACKET      { EntityValue.evSet vs }
+  | LBRACE kvs=key_values RBRACE               { EntityValue.evRecord kvs }
+  | first=IDENTIFIER rest=path_value_tail      { rest [first.val] }
+
+-- After an ident spine: a final `:: STR` closes an entity reference, another
+-- `:: IDENT` extends the path, and `( args )` makes it an extension call.
+path_value_tail :: (List String → EntityValue)
+  | COLONCOLON id=STRINGLIT
+      { fun path => EntityValue.evEntityRef (mkEntityRef path id) }
+  | COLONCOLON next=IDENTIFIER rest=path_value_tail
+      { fun path => rest (path ++ [next.val]) }
+  | LPAREN args=value_comma_list RPAREN
+      { fun path => EntityValue.evExtCall path args }
+
+-- Comma<Value>: zero or more values, optional trailing comma.
+value_comma_list :: List EntityValue
+  |                                            { [] }
+  | v=value rest=value_comma_tail              { v :: rest }
+value_comma_tail :: List EntityValue
+  |                                            { [] }
+  | COMMA                                      { [] }
+  | COMMA v=value rest=value_comma_tail        { v :: rest }

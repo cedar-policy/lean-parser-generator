@@ -1,0 +1,16 @@
+// The value grammar: strings, longs (incl. negative), booleans, entity
+// references, nested records, sets, extension calls, and quoted-string keys.
+instance User::"alice" {
+  name: "alice",
+  age: 25,
+  balance: -25,
+  active: true,
+  deleted: false,
+  manager: Employee::"carol",
+  address: { city: "Seattle", zip: 98101 },
+  pets: ["cat", "dog"],
+  since: datetime("2025-08-20"),
+  ip: ip("10.0.0.1"),
+  "quoted key": 1,
+  nested: [{ a: 1 }, { b: 2 }]
+};

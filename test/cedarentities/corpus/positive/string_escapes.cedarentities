@@ -1,0 +1,10 @@
+// String values with escape sequences. Escapes are kept raw at the CST level
+// (see special_entity_ids.cedarentities); this only checks they lex and parse.
+instance Document::"escapes" = {
+    "tab": "col1\tcol2",
+    "newline": "line1\nline2",
+    "quote": "she said \"hello\"",
+    "backslash": "path\\to\\file",
+    "unicode": "エモジ: \u{1F600}",
+    "empty": ""
+};

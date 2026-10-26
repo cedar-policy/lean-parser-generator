@@ -1,0 +1,11 @@
+// Numeric edge cases. NUMBER lexes as an arbitrary-precision Nat and is stored
+// verbatim as an `IntLit` (sign + magnitude), so parsing is lossless — even a
+// magnitude larger than i64. Range-checking against `[-2^63, 2^63-1]` is a
+// separate transformation (`IntLit.toInt64?`), which is where an out-of-range
+// literal is caught. `max_long` and `min_long` are the i64 bounds.
+instance Metrics::"extremes" = {
+    "max_long": 9223372036854775807,
+    "min_long": -9223372036854775808,
+    "zero": 0,
+    "negative": -42
+};

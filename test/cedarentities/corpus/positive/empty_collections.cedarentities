@@ -1,0 +1,3 @@
+// Empty record and empty set values, and an instance with an empty record.
+instance User::"alice" {};
+instance User::"bob" { attrs: {}, items: [] };

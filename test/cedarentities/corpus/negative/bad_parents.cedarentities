@@ -1,0 +1,3 @@
+// `in` must be followed by an entity reference or a bracketed list of them, not
+// a record.
+instance User::"alice" in { a: 1 };

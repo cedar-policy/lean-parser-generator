@@ -1,2 +1,23 @@
 # cache and other artifacts produced by Lean's Lake build tool
 .lake/
+build/
+
+# VS Code extension build products
+node_modules/
+*.vsix
+
+# Python bytecode and virtual environments (test/lsp_driver.py)
+__pycache__/
+*.pyc
+.venv*/
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# local build logs and agent/tooling state
+*.log
+.kiro/
+.research/

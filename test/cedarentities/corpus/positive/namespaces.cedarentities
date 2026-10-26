@@ -1,0 +1,7 @@
+// Top-level instances interleaved with a namespace block, and a namespaced
+// entity type / deep type path.
+instance Root::"r";
+namespace My::Deep::Namespace {
+  instance A::B::C::"x" in My::Other::Type::"parent" { k: 1 };
+}
+instance Root::"s" in [Root::"r"];

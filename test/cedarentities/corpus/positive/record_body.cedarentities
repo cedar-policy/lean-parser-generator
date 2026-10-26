@@ -1,0 +1,3 @@
+// The `=` before a record body is optional; a bare record is also allowed.
+instance Photo::"p.jpg" = { private: false };
+instance Photo::"q.jpg" { private: true };

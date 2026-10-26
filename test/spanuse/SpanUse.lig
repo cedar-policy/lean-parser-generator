@@ -1,0 +1,24 @@
+-- Test fixture for `x_span` in semantic actions (test/spanuse/SpanUseTest.lean).
+-- `start ::= w=WORD` returns the byte width of the WORD span, reading `w_span`;
+-- `start ::= w=WORD DOT` ignores the spans, checking the ignored-span rule
+-- compiles without an unused-variable warning.
+%header {
+}
+%option module_prefix spanuse
+%option roundtrip_lexer
+%tokentype Tok
+%token DOT
+%token <Nat> WORD
+%token EOF
+%eof EOF
+%lexer {
+  | ['a'-'z']+ as s          => { Tok.WORD s.length }
+  | "."                      => { Tok.DOT }
+  | (' ' | '\t' | '\n')+     => skip
+  eof => { Tok.EOF }
+}
+%start start
+%%
+start :: Nat
+  | w=WORD                 { w_span.endPos.byteIdx - w_span.startPos.byteIdx }
+  | w=WORD DOT             { w }

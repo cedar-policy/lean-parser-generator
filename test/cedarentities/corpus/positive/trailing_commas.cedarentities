@@ -1,0 +1,7 @@
+// Trailing commas are allowed in records, sets, extension args, and parent
+// lists.
+instance User::"alice" in [UserGroup::"a", UserGroup::"b",] {
+  a: 1,
+  b: [1, 2,],
+  c: point(1, 2,),
+};

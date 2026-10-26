@@ -1,0 +1,343 @@
+%header {
+import c99.C99Ast
+open C99
+}
+%option module_prefix c99
+%tokentype Tok
+-- type specifiers / qualifiers / storage classes
+%token VOID CHAR SHORT INT LONG FLOAT DOUBLE SIGNED UNSIGNED BOOL COMPLEX
+%token STRUCT UNION ENUM
+%token CONST RESTRICT VOLATILE
+%token TYPEDEF EXTERN STATIC AUTO REGISTER INLINE
+-- statement keywords
+%token CASE DEFAULT IF ELSE SWITCH WHILE DO FOR
+%token GOTO CONTINUE BREAK RETURN
+%token SIZEOF
+-- names and literals
+%token <String> IDENTIFIER
+%token <String> TYPEDEF_NAME
+%token <String> CONSTANT
+%token <String> STRING_LITERAL
+-- punctuators
+%token LBRACKET RBRACKET LPAREN RPAREN LBRACE RBRACE
+%token DOT ARROW
+%token INC DEC
+%token AMP STAR PLUS MINUS TILDE BANG
+%token SLASH PERCENT LSHIFT RSHIFT
+%token LT GT LEQ GEQ EQEQ NEQ
+%token CARET PIPE ANDAND OROR
+%token QUESTION COLON SEMICOLON ELLIPSIS
+%token EQ STAR_EQ SLASH_EQ PERCENT_EQ PLUS_EQ MINUS_EQ
+%token LSHIFT_EQ RSHIFT_EQ AMP_EQ CARET_EQ PIPE_EQ
+%token COMMA
+%token EOF
+%eof EOF
+%start translation_unit
+%%
+
+-- A.2.4 External definitions
+translation_unit :: TranslationUnit
+  | ds=external_decl_list                      { TranslationUnit.mk ds }
+external_decl_list :: List ExternalDecl
+  | d=external_decl                            { [d] }
+  | d=external_decl rest=external_decl_list    { d :: rest }
+external_decl :: ExternalDecl
+  | f=function_def                             { ExternalDecl.function f }
+  | d=declaration                              { ExternalDecl.decl d }
+
+-- function-definition: specifiers declarator compound-statement
+function_def :: FunctionDef
+  | specs=decl_specifiers d=declarator body=compound_stmt
+      { FunctionDef.mk specs d body }
+
+-- A.2.2 Declarations
+-- declaration: declaration-specifiers init-declarator-list? ';'
+declaration :: Declaration
+  | specs=decl_specifiers SEMICOLON
+      { Declaration.mk false specs [] }
+  | specs=decl_specifiers ids=init_declarator_list SEMICOLON
+      { Declaration.mk false specs ids }
+  | TYPEDEF specs=decl_specifiers ids=init_declarator_list SEMICOLON
+      { Declaration.mk true specs ids }
+
+-- declaration-specifiers: a nonempty run of type specifiers/qualifiers.
+-- Storage-class and function specifiers other than typedef are folded in as
+-- ignored prefixes to keep the specifier run LR(1) without a symbol table.
+decl_specifiers :: List TypeSpec
+  | s=type_specifier                           { [s] }
+  | s=type_specifier rest=decl_specifiers      { s :: rest }
+  | type_qualifier rest=decl_specifiers        { rest }
+  | storage_class rest=decl_specifiers         { rest }
+
+storage_class :: Unit
+  | EXTERN                                     { () }
+  | STATIC                                     { () }
+  | AUTO                                       { () }
+  | REGISTER                                   { () }
+  | INLINE                                     { () }
+
+type_qualifier :: Unit
+  | CONST                                      { () }
+  | RESTRICT                                   { () }
+  | VOLATILE                                   { () }
+
+type_specifier :: TypeSpec
+  | VOID                                       { .void }
+  | CHAR                                       { .char }
+  | SHORT                                      { .short }
+  | INT                                        { .int }
+  | LONG                                       { .long }
+  | FLOAT                                      { .float }
+  | DOUBLE                                     { .double }
+  | SIGNED                                     { .signed }
+  | UNSIGNED                                   { .unsigned }
+  | BOOL                                       { .bool }
+  | COMPLEX                                    { .complex }
+  | s=struct_or_union_specifier                { s }
+  | s=enum_specifier                           { s }
+  | name=TYPEDEF_NAME                          { .typedefName name }
+
+-- struct-or-union-specifier
+struct_or_union_specifier :: TypeSpec
+  | struct_or_union tag=IDENTIFIER             { .structOrUnion tag }
+  | struct_or_union LBRACE struct_decl_list RBRACE
+      { .structOrUnion "" }
+  | struct_or_union tag=IDENTIFIER LBRACE struct_decl_list RBRACE
+      { .structOrUnion tag }
+struct_or_union :: Unit
+  | STRUCT                                     { () }
+  | UNION                                      { () }
+struct_decl_list :: Unit
+  | struct_declaration                         { () }
+  | struct_declaration struct_decl_list        { () }
+struct_declaration :: Unit
+  | decl_specifiers struct_declarator_list SEMICOLON { () }
+struct_declarator_list :: Unit
+  | declarator                                 { () }
+  | declarator COMMA struct_declarator_list    { () }
+
+-- enum-specifier
+enum_specifier :: TypeSpec
+  | ENUM tag=IDENTIFIER                         { .enumSpec tag }
+  | ENUM LBRACE enumerator_list RBRACE          { .enumSpec "" }
+  | ENUM tag=IDENTIFIER LBRACE enumerator_list RBRACE { .enumSpec tag }
+enumerator_list :: Unit
+  | enumerator                                 { () }
+  | enumerator COMMA enumerator_list           { () }
+enumerator :: Unit
+  | IDENTIFIER                                 { () }
+  | IDENTIFIER EQ constant_expr                { () }
+
+-- init-declarator-list
+init_declarator_list :: List InitDeclarator
+  | id=init_declarator                         { [id] }
+  | id=init_declarator COMMA rest=init_declarator_list { id :: rest }
+init_declarator :: InitDeclarator
+  | d=declarator                               { InitDeclarator.mk d none }
+  | d=declarator EQ e=assignment_expr          { InitDeclarator.mk d (some e) }
+
+-- A.2.2 Declarators
+declarator :: Declarator
+  | d=direct_declarator                        { d }
+  | STAR d=declarator                          { Declarator.pointer d }
+direct_declarator :: Declarator
+  | name=IDENTIFIER                            { Declarator.name name }
+  | LPAREN d=declarator RPAREN                 { Declarator.paren d }
+  | d=direct_declarator LBRACKET RBRACKET      { Declarator.array d none }
+  | d=direct_declarator LBRACKET e=assignment_expr RBRACKET
+      { Declarator.array d (some e) }
+  | d=direct_declarator LPAREN RPAREN          { Declarator.func d [] }
+  | d=direct_declarator LPAREN ps=parameter_list RPAREN
+      { Declarator.func d ps }
+
+-- parameter-list, with a trailing ', ...' variadic form
+parameter_list :: List Param
+  | p=parameter_decl                           { [p] }
+  | p=parameter_decl COMMA rest=parameter_list { p :: rest }
+  | p=parameter_decl COMMA ELLIPSIS            { [p, Param.ellipsis] }
+parameter_decl :: Param
+  | specs=decl_specifiers d=declarator         { Param.mk specs (some d) }
+  | specs=decl_specifiers                      { Param.mk specs none }
+
+-- type-name (specifiers with an optional abstract pointer declarator)
+type_name :: CTypeName
+  | specs=decl_specifiers                      { CTypeName.mk specs (0 : Nat) }
+  | specs=decl_specifiers p=pointer            { CTypeName.mk specs p }
+pointer :: Nat
+  | STAR                                       { (1 : Nat) }
+  | STAR p=pointer                             { p + 1 }
+
+-- A.2.1 Expressions
+primary_expr :: Expr
+  | name=IDENTIFIER                            { Expr.ident name }
+  | value=CONSTANT                             { Expr.constant value }
+  | value=STRING_LITERAL                       { Expr.stringLit value }
+  | LPAREN e=expr RPAREN                       { Expr.paren e }
+
+postfix_expr :: Expr
+  | e=primary_expr                             { e }
+  | e=postfix_expr LBRACKET i=expr RBRACKET    { Expr.index e i }
+  | e=postfix_expr LPAREN RPAREN               { Expr.call e [] }
+  | e=postfix_expr LPAREN args=argument_list RPAREN { Expr.call e args }
+  | e=postfix_expr DOT field=IDENTIFIER        { Expr.field e field }
+  | e=postfix_expr ARROW field=IDENTIFIER      { Expr.arrow e field }
+  | e=postfix_expr INC                         { Expr.postInc e }
+  | e=postfix_expr DEC                         { Expr.postDec e }
+argument_list :: List Expr
+  | e=assignment_expr                          { [e] }
+  | e=assignment_expr COMMA rest=argument_list { e :: rest }
+
+unary_expr :: Expr
+  | e=postfix_expr                             { e }
+  | INC e=unary_expr                           { Expr.preInc e }
+  | DEC e=unary_expr                           { Expr.preDec e }
+  | op=unary_operator e=cast_expr              { Expr.unary op e }
+  | SIZEOF e=unary_expr                        { Expr.sizeofExpr e }
+  | SIZEOF LPAREN t=type_name RPAREN           { Expr.sizeofType t }
+unary_operator :: UnaryOp
+  | AMP                                        { .addr }
+  | STAR                                       { .deref }
+  | PLUS                                       { .plus }
+  | MINUS                                      { .minus }
+  | TILDE                                      { .bnot }
+  | BANG                                       { .lnot }
+
+cast_expr :: Expr
+  | e=unary_expr                               { e }
+  | LPAREN t=type_name RPAREN e=cast_expr      { Expr.cast t e }
+
+multiplicative_expr :: Expr
+  | e=cast_expr                                { e }
+  | l=multiplicative_expr STAR r=cast_expr     { Expr.binop "*" l r }
+  | l=multiplicative_expr SLASH r=cast_expr    { Expr.binop "/" l r }
+  | l=multiplicative_expr PERCENT r=cast_expr  { Expr.binop "%" l r }
+
+additive_expr :: Expr
+  | e=multiplicative_expr                      { e }
+  | l=additive_expr PLUS r=multiplicative_expr { Expr.binop "+" l r }
+  | l=additive_expr MINUS r=multiplicative_expr { Expr.binop "-" l r }
+
+shift_expr :: Expr
+  | e=additive_expr                            { e }
+  | l=shift_expr LSHIFT r=additive_expr        { Expr.binop "<<" l r }
+  | l=shift_expr RSHIFT r=additive_expr        { Expr.binop ">>" l r }
+
+relational_expr :: Expr
+  | e=shift_expr                               { e }
+  | l=relational_expr LT r=shift_expr          { Expr.binop "<" l r }
+  | l=relational_expr GT r=shift_expr          { Expr.binop ">" l r }
+  | l=relational_expr LEQ r=shift_expr         { Expr.binop "<=" l r }
+  | l=relational_expr GEQ r=shift_expr         { Expr.binop ">=" l r }
+
+equality_expr :: Expr
+  | e=relational_expr                          { e }
+  | l=equality_expr EQEQ r=relational_expr     { Expr.binop "==" l r }
+  | l=equality_expr NEQ r=relational_expr      { Expr.binop "!=" l r }
+
+and_expr :: Expr
+  | e=equality_expr                            { e }
+  | l=and_expr AMP r=equality_expr             { Expr.binop "&" l r }
+
+exclusive_or_expr :: Expr
+  | e=and_expr                                 { e }
+  | l=exclusive_or_expr CARET r=and_expr       { Expr.binop "^" l r }
+
+inclusive_or_expr :: Expr
+  | e=exclusive_or_expr                        { e }
+  | l=inclusive_or_expr PIPE r=exclusive_or_expr { Expr.binop "|" l r }
+
+logical_and_expr :: Expr
+  | e=inclusive_or_expr                        { e }
+  | l=logical_and_expr ANDAND r=inclusive_or_expr { Expr.binop "&&" l r }
+
+logical_or_expr :: Expr
+  | e=logical_and_expr                         { e }
+  | l=logical_or_expr OROR r=logical_and_expr  { Expr.binop "||" l r }
+
+conditional_expr :: Expr
+  | e=logical_or_expr                          { e }
+  | c=logical_or_expr QUESTION t=expr COLON f=conditional_expr
+      { Expr.cond c t f }
+
+assignment_expr :: Expr
+  | e=conditional_expr                         { e }
+  | l=unary_expr op=assignment_operator r=assignment_expr
+      { Expr.assign op l r }
+assignment_operator :: AssignOp
+  | EQ                                         { .eq }
+  | STAR_EQ                                    { .mulEq }
+  | SLASH_EQ                                   { .divEq }
+  | PERCENT_EQ                                 { .modEq }
+  | PLUS_EQ                                    { .addEq }
+  | MINUS_EQ                                   { .subEq }
+  | LSHIFT_EQ                                  { .shlEq }
+  | RSHIFT_EQ                                  { .shrEq }
+  | AMP_EQ                                     { .andEq }
+  | CARET_EQ                                   { .xorEq }
+  | PIPE_EQ                                    { .orEq }
+
+expr :: Expr
+  | e=assignment_expr                          { e }
+  | l=expr COMMA r=assignment_expr             { Expr.comma l r }
+
+constant_expr :: Expr
+  | e=conditional_expr                         { e }
+
+-- A.2.3 Statements
+-- Dangling else resolved by the matched/unmatched split. Every production with
+-- a trailing statement position (if/while/for and the three labeled forms)
+-- appears in both a matched and an unmatched variant.
+statement :: Stmt
+  | s=matched_stmt                             { s }
+  | s=unmatched_stmt                           { s }
+
+matched_stmt :: Stmt
+  | s=compound_stmt                            { s }
+  | s=expression_stmt                          { s }
+  | s=jump_stmt                                { s }
+  | label=IDENTIFIER COLON s=matched_stmt      { Stmt.labeled label s }
+  | CASE e=constant_expr COLON s=matched_stmt  { Stmt.case e s }
+  | DEFAULT COLON s=matched_stmt               { Stmt.default s }
+  | IF LPAREN c=expr RPAREN t=matched_stmt ELSE e=matched_stmt
+      { Stmt.ifElse c t e }
+  | SWITCH LPAREN c=expr RPAREN s=matched_stmt { Stmt.switch c s }
+  | WHILE LPAREN c=expr RPAREN s=matched_stmt  { Stmt.whileDo c s }
+  | DO s=statement WHILE LPAREN c=expr RPAREN SEMICOLON { Stmt.doWhile s c }
+  | FOR LPAREN i=opt_expr SEMICOLON c=opt_expr SEMICOLON step=opt_expr RPAREN s=matched_stmt
+      { Stmt.forLoop i c step s }
+
+unmatched_stmt :: Stmt
+  | label=IDENTIFIER COLON s=unmatched_stmt    { Stmt.labeled label s }
+  | CASE e=constant_expr COLON s=unmatched_stmt { Stmt.case e s }
+  | DEFAULT COLON s=unmatched_stmt             { Stmt.default s }
+  | IF LPAREN c=expr RPAREN s=statement        { Stmt.ifThen c s }
+  | IF LPAREN c=expr RPAREN t=matched_stmt ELSE e=unmatched_stmt
+      { Stmt.ifElse c t e }
+  | SWITCH LPAREN c=expr RPAREN s=unmatched_stmt { Stmt.switch c s }
+  | WHILE LPAREN c=expr RPAREN s=unmatched_stmt  { Stmt.whileDo c s }
+  | FOR LPAREN i=opt_expr SEMICOLON c=opt_expr SEMICOLON step=opt_expr RPAREN s=unmatched_stmt
+      { Stmt.forLoop i c step s }
+
+compound_stmt :: Stmt
+  | LBRACE RBRACE                              { Stmt.compound [] }
+  | LBRACE items=block_item_list RBRACE        { Stmt.compound items }
+block_item_list :: List BlockItem
+  | i=block_item                               { [i] }
+  | i=block_item rest=block_item_list          { i :: rest }
+block_item :: BlockItem
+  | d=declaration                              { BlockItem.decl d }
+  | s=statement                                { BlockItem.stmt s }
+
+expression_stmt :: Stmt
+  | SEMICOLON                                  { Stmt.expr none }
+  | e=expr SEMICOLON                           { Stmt.expr (some e) }
+opt_expr :: Option Expr
+  |                                            { none }
+  | e=expr                                     { some e }
+
+jump_stmt :: Stmt
+  | GOTO label=IDENTIFIER SEMICOLON            { Stmt.goto label }
+  | CONTINUE SEMICOLON                         { Stmt.continueStmt }
+  | BREAK SEMICOLON                            { Stmt.breakStmt }
+  | RETURN SEMICOLON                           { Stmt.returnStmt none }
+  | RETURN e=expr SEMICOLON                    { Stmt.returnStmt (some e) }
