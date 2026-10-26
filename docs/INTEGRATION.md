@@ -109,8 +109,8 @@ generated `ExprLexer` module defines `inductive Tok` from them. Bindings such as
 ## 5. Generate and import the modules
 
 Generate the lexer and both parser backends together so they share one prepared
-grammar and table set. The primary form takes just the `.lig` and infers every
-output from its stem, writing the modules next to it. Put the `.lig` where you want
+grammar and table set. With just the `.lig` as argument, the CLI infers every
+output from its stem and writes the modules next to it. Put the `.lig` where you want
 the generated modules and set `%option module_prefix` to their dotted prefix:
 
 ```text
@@ -129,8 +129,9 @@ This writes `MyProject/Generated/ExprVerified.lean`, `ExprParser.lean`,
 it as `MyProject.Generated.ExprLexer`), and `ExprLexerRoundtrip.lean`. The base
 name is the `.lig` stem, so name the file in the CamelCase you want for the modules.
 
-When the generated files must live apart from the `.lig`, the explicit-argument
-form spells out every output path, module name, and the parser's import path:
+Alternatively, when the generated files must live apart from the `.lig`, the
+command line can spell out every output path, module name, and the parser's import
+path:
 
 ```sh
 lake exe leanparsergenerator \
@@ -235,7 +236,7 @@ target generatedExprParser (pkg : NPackage __name__) : Unit := do
             parserTime < inputTime || parserTime < generatorTime)
 
       if regenerate then
-        -- Explicit-argument form: the outputs live in `MyProject/Generated/`, apart
+        -- Explicit arguments: the outputs live in `MyProject/Generated/`, apart
         -- from the `.lig` in `grammar/`. If instead the `.lig` sits with its
         -- outputs and carries `%option module_prefix MyProject.Generated`, this is
         -- just `args := #[ligPath.toString]`.
