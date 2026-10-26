@@ -1,0 +1,60 @@
+%header {
+import LeanParserGenerator.Frontend.LigLexer
+open Frontend
+}
+%tokentype LigTok
+%token <String> HEADER LEXERHEADER LEXER TYVAL TYPELINE ACTION IDENT
+%token KW_TOKENTYPE KW_TOKEN KW_EOF KW_START KW_OPTION
+%token PCTPCT DCOLON PIPE EQ
+%token EOF
+%eof EOF
+%start file
+%%
+file :: Frontend.LigResult
+  | ds=directives PCTPCT rs=rules { Frontend.assembleSurface ds rs }
+
+directives :: Array Frontend.Directive
+  | ds=directives d=directive { ds.push d }
+  | d=directive                { #[d] }
+
+directive :: Frontend.Directive
+  | h=HEADER              { .header h }
+  | h=LEXERHEADER         { .lexerHeader h }
+  | KW_TOKENTYPE n=IDENT  { .tokenType n }
+  | KW_TOKEN b=tokenbody  { .tokens b }
+  | KW_EOF n=IDENT        { .eof n }
+  | KW_START n=IDENT      { .start n }
+  | KW_OPTION n=IDENT v=IDENT { .option n (some v) }
+  | KW_OPTION n=IDENT     { .option n none }
+  | l=LEXER               { .lexer l }
+
+tokenbody :: Array Frontend.TokenDecl
+  | ty=TYVAL ns=identlist { ns.map (fun n => { name := n, ty := ty, hasVal := true }) }
+  | ns=identlist          { ns.map (fun n => { name := n, ty := "Unit", hasVal := false }) }
+
+identlist :: Array String
+  | ns=identlist n=IDENT { ns.push n }
+  | n=IDENT              { #[n] }
+
+rules :: Array Frontend.Rule
+  | rs=rules r=rule { rs.push r }
+  | r=rule          { #[r] }
+
+rule :: Frontend.Rule
+  | lhs=IDENT DCOLON ty=TYPELINE alts=altlist { { lhs := lhs, ty := ty, alts := alts } }
+
+altlist :: Array Frontend.Alt
+  | as=altlist a=alt { as.push a }
+  | a=alt            { #[a] }
+
+alt :: Frontend.Alt
+  | PIPE es=elemlist act=ACTION { { elems := es, action := act } }
+  | PIPE act=ACTION             { { elems := #[], action := act } }
+
+elemlist :: Array Frontend.Elem
+  | es=elemlist e=elem { es.push e }
+  | e=elem            { #[e] }
+
+elem :: Frontend.Elem
+  | b=IDENT EQ s=IDENT { { binder := some b, sym := s } }
+  | s=IDENT            { { binder := none, sym := s } }

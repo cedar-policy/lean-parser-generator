@@ -1,0 +1,3 @@
+// A single unbracketed parent, and a bracketed parent list.
+instance User::"alice" in UserGroup::"AVTeam";
+instance User::"bob" in [UserGroup::"a", UserGroup::"b"];

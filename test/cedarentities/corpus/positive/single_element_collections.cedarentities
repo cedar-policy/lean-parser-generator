@@ -1,0 +1,7 @@
+// Single-element collections: a one-element set, a one-key record, and a
+// one-element parent list.
+instance Collection::"singles" = {
+    "one_item_set": [42],
+    "one_item_record": { "only_key": "only_value" },
+    "one_parent_list": [User::"alice"]
+};

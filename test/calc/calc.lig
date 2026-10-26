@@ -1,0 +1,34 @@
+%header {
+import calc.CalcAst
+open Calc
+}
+%option module_prefix calc
+%option roundtrip_lexer
+%tokentype Tok
+%token PLUS TIMES LPAR RPAR DIV
+%token <Int> NUM
+%token EOF
+%eof EOF
+%lexer {
+  let digit = ['0'-'9']
+  | digit+ as s              => { Tok.NUM (String.toInt! s) }
+  | "+"                      => { Tok.PLUS }
+  | "*"                      => { Tok.TIMES }
+  | "/"                      => { Tok.DIV }
+  | "("                      => { Tok.LPAR }
+  | ")"                      => { Tok.RPAR }
+  | (' ' | '\t' | '\n')+     => skip
+  eof => { Tok.EOF }
+}
+%start expr
+%%
+expr :: Int
+  | e=expr PLUS t=term    { e + t }
+  | t=term                { t }
+term :: Int
+  | t=term TIMES f=factor { t * f }
+  | t=term DIV f=factor  { t / f }
+  | f=factor              { f }
+factor :: Int
+  | LPAR e=expr RPAR      { e }
+  | n=NUM                 { n }

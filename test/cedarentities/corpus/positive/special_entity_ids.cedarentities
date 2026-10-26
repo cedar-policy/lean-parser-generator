@@ -1,0 +1,7 @@
+// Special characters and escapes inside entity-id strings. The lexer keeps
+// escape sequences raw (only the surrounding quotes are stripped), matching the
+// cedar/cedarschema CST fixtures; a later decode pass would interpret them.
+instance User::"alice smith";
+instance User::"bob\tbuilder";
+instance User::"carol \"C\" davis";
+instance User::"";

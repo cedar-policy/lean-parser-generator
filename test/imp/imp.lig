@@ -1,0 +1,46 @@
+%header {
+import imp.ImpAst
+open Imp
+}
+%option module_prefix imp
+%tokentype Tok
+%token SKIP IF THEN ELSE WHILE DO
+%token TRUE FALSE NOT AND
+%token ASSIGN SEMI LPAR RPAR
+%token PLUS MINUS TIMES
+%token LE EQ
+%token <String> ID
+%token <Int> NUM
+%token EOF
+%eof EOF
+%start com
+%%
+com :: Com
+  | s=stmt SEMI c=com     { Com.seq s c }
+  | s=stmt                { s }
+stmt :: Com
+  | SKIP                              { Com.skip }
+  | x=ID ASSIGN a=aexp                { Com.assign x a }
+  | IF b=bexp THEN LPAR c1=com RPAR ELSE LPAR c2=com RPAR  { Com.ite b c1 c2 }
+  | WHILE b=bexp DO LPAR c=com RPAR   { Com.while b c }
+bexp :: BExp
+  | b=bterm AND c=bexp    { BExp.and b c }
+  | b=bterm               { b }
+bterm :: BExp
+  | TRUE                  { BExp.tru }
+  | FALSE                 { BExp.fls }
+  | NOT b=bterm           { BExp.not b }
+  | a1=aexp LE a2=aexp    { BExp.le a1 a2 }
+  | a1=aexp EQ a2=aexp    { BExp.eq a1 a2 }
+  | LPAR b=bexp RPAR      { b }
+aexp :: AExp
+  | a=aexp PLUS t=aterm   { AExp.add a t }
+  | a=aexp MINUS t=aterm  { AExp.sub a t }
+  | t=aterm               { t }
+aterm :: AExp
+  | t=aterm TIMES f=afactor { AExp.mul t f }
+  | f=afactor               { f }
+afactor :: AExp
+  | LPAR a=aexp RPAR      { a }
+  | x=ID                  { AExp.var x }
+  | n=NUM                 { AExp.num n }

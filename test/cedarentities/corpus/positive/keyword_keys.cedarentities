@@ -1,0 +1,12 @@
+// Quoted attribute keys that spell reserved words. Because keywords are only
+// recognized as bare identifiers, the quoted forms lex as STRINGLIT and are
+// accepted as `Key := STR`. Values may also be keyword-derived (true/false).
+instance Config::"settings" = {
+    "in": "production",
+    "type": "service",
+    "instance": "primary",
+    "namespace": "default",
+    "tags": "metadata",
+    "true": false,
+    "false": true
+};

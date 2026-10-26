@@ -1,0 +1,3 @@
+// A bare path with no `::"id"` is not a value (values are literals, refs, sets,
+// records, or extension calls).
+instance User::"alice" { manager: Employee };

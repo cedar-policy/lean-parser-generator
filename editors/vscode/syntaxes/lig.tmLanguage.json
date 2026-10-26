@@ -1,0 +1,297 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "LIG Grammar",
+  "scopeName": "source.lig",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#section-separator" },
+    { "include": "#header-block" },
+    { "include": "#lexerheader-block" },
+    { "include": "#lexer-block" },
+    { "include": "#directives" },
+    { "include": "#type-annotation" },
+    { "include": "#action-block" },
+    { "include": "#alternative-bar" },
+    { "include": "#binding" },
+    { "include": "#macro-application" },
+    { "include": "#strings" },
+    { "include": "#terminals" },
+    { "include": "#nonterminals" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.lig",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.lig",
+          "begin": "/-",
+          "end": "-/",
+          "patterns": [{ "include": "#comments" }]
+        }
+      ]
+    },
+
+    "section-separator": {
+      "name": "keyword.control.separator.lig",
+      "match": "^\\s*%%\\s*$"
+    },
+
+    "directives": {
+      "patterns": [
+        {
+          "comment": "%token with an optional <Type>, then the token names it declares",
+          "begin": "(%token)\\b",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.directive.lig" }
+          },
+          "end": "$",
+          "patterns": [
+            { "include": "#comments" },
+            {
+              "name": "meta.type.carried.lig",
+              "begin": "<",
+              "beginCaptures": { "0": { "name": "punctuation.definition.type.begin.lig" } },
+              "end": ">",
+              "endCaptures": { "0": { "name": "punctuation.definition.type.end.lig" } },
+              "patterns": [
+                { "name": "entity.name.type.lig", "match": "[^<>]+" }
+              ]
+            },
+            {
+              "name": "entity.name.function.token.lig",
+              "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+            }
+          ]
+        },
+        {
+          "comment": "%option module_prefix <path> — the value-carrying option",
+          "match": "(%option)\\s+(module_prefix)\\s+([A-Za-z_][A-Za-z0-9_.]*)",
+          "captures": {
+            "1": { "name": "keyword.control.directive.lig" },
+            "2": { "name": "constant.language.option.lig" },
+            "3": { "name": "entity.name.namespace.lig" }
+          }
+        },
+        {
+          "comment": "%option <name> — known flag options",
+          "match": "(%option)\\s+(compress_tables|roundtrip_lexer)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.directive.lig" },
+            "2": { "name": "constant.language.option.lig" }
+          }
+        },
+        {
+          "comment": "%option <name> — unknown option name (still highlighted, but as invalid)",
+          "match": "(%option)\\s+([a-z_]+)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.directive.lig" },
+            "2": { "name": "invalid.illegal.option.lig" }
+          }
+        },
+        {
+          "name": "keyword.control.directive.lig",
+          "match": "%(header|tokentype|eof|start)\\b"
+        }
+      ]
+    },
+
+    "type-annotation": {
+      "comment": "rule head type: `expr :: Int` — everything after :: up to end of line is a Lean type",
+      "begin": "(::)",
+      "beginCaptures": {
+        "1": { "name": "keyword.operator.type.lig" }
+      },
+      "end": "$",
+      "patterns": [
+        { "include": "#comments" },
+        { "name": "entity.name.type.lig", "match": ".+" }
+      ]
+    },
+
+    "header-block": {
+      "comment": "%header { ... } — embedded Lean import/open preamble",
+      "begin": "(%header)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.directive.lig" },
+        "2": { "name": "punctuation.section.embedded.begin.lig" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.end.lig" }
+      },
+      "contentName": "meta.embedded.block.lean",
+      "patterns": [{ "include": "#lean-code" }]
+    },
+
+    "lexerheader-block": {
+      "comment": "%lexerheader { ... } — embedded Lean, lexer-module-only helpers",
+      "begin": "(%lexerheader)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.directive.lig" },
+        "2": { "name": "punctuation.section.embedded.begin.lig" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.end.lig" }
+      },
+      "contentName": "meta.embedded.block.lean",
+      "patterns": [{ "include": "#lean-code" }]
+    },
+
+    "lexer-block": {
+      "comment": "%lexer { ... } — regex rules with embedded Lean actions. The block body is NOT Lean: it has `let name = regex` definitions and `| regex => { action }` / `=> skip` rules. String and char literals must be consumed before the closing-brace scan so a `}` inside a `\"}\"` literal (e.g. the RBRACE rule) does not end the block early.",
+      "begin": "(%lexer)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.directive.lig" },
+        "2": { "name": "punctuation.section.embedded.begin.lig" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.end.lig" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        {
+          "comment": "single-quoted char literal in a regex, e.g. ' ', '\\t', '0'; may contain a brace or quote",
+          "name": "string.quoted.single.lig",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            { "name": "constant.character.escape.lig", "match": "\\\\." }
+          ]
+        },
+        {
+          "comment": "character class [ ... ] and its ranges",
+          "name": "meta.character-class.lig",
+          "begin": "\\[",
+          "beginCaptures": { "0": { "name": "punctuation.definition.character-class.begin.lig" } },
+          "end": "\\]",
+          "endCaptures": { "0": { "name": "punctuation.definition.character-class.end.lig" } },
+          "patterns": [
+            {
+              "name": "string.quoted.single.lig",
+              "begin": "'",
+              "end": "'",
+              "patterns": [{ "name": "constant.character.escape.lig", "match": "\\\\." }]
+            }
+          ]
+        },
+        {
+          "comment": "the embedded Lean action; balanced braces via #action-block",
+          "include": "#action-block"
+        },
+        {
+          "name": "keyword.other.lexer.lig",
+          "match": "\\b(let|as|skip|eof)\\b"
+        },
+        {
+          "name": "keyword.operator.lexer.arrow.lig",
+          "match": "=>"
+        },
+        {
+          "name": "keyword.operator.alternative.lig",
+          "match": "\\|"
+        }
+      ]
+    },
+
+    "action-block": {
+      "comment": "semantic action { ... } — embedded Lean expression",
+      "begin": "(\\{)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.embedded.begin.lig" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.end.lig" }
+      },
+      "contentName": "meta.embedded.block.lean",
+      "patterns": [
+        {
+          "comment": "nested braces inside an action",
+          "begin": "\\{",
+          "end": "\\}",
+          "patterns": [{ "include": "#lean-code" }]
+        },
+        { "include": "#lean-code" }
+      ]
+    },
+
+    "lean-code": {
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "name": "keyword.other.lean.lig",
+          "match": "\\b(import|open|namespace|end|def|fun|let|match|with|if|then|else|do)\\b"
+        },
+        {
+          "name": "constant.numeric.lig",
+          "match": "\\b[0-9]+\\b"
+        },
+        {
+          "comment": "the bound names introduced by `x=SYMBOL` are ordinary variables here",
+          "name": "variable.other.lig",
+          "match": "\\b[a-z_][A-Za-z0-9_']*\\b"
+        }
+      ]
+    },
+
+    "alternative-bar": {
+      "name": "keyword.operator.alternative.lig",
+      "match": "(?<=^|\\s)\\|(?=\\s)"
+    },
+
+    "binding": {
+      "comment": "`e=expr` — the identifier and `=` that bind a symbol's value",
+      "match": "(?<![A-Za-z0-9_'])([a-z_][A-Za-z0-9_']*)\\s*(=)",
+      "captures": {
+        "1": { "name": "variable.parameter.binding.lig" },
+        "2": { "name": "keyword.operator.assignment.lig" }
+      }
+    },
+
+    "macro-application": {
+      "comment": "Menhir-style parameterized-rule macros: list(X), separated_list(sep, X), etc. The macro name is a built-in keyword; arguments are highlighted as ordinary terminals/nonterminals.",
+      "begin": "\\b(list|nonempty_list|option|separated_list|separated_nonempty_list)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "support.function.macro.lig" },
+        "2": { "name": "punctuation.definition.parameters.begin.lig" }
+      },
+      "end": "(\\))",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.parameters.end.lig" }
+      },
+      "patterns": [
+        { "name": "punctuation.separator.comma.lig", "match": "," },
+        { "include": "#macro-application" },
+        { "include": "#terminals" },
+        { "include": "#nonterminals" }
+      ]
+    },
+
+    "strings": {
+      "name": "string.quoted.double.lig",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.lig", "match": "\\\\." }
+      ]
+    },
+
+    "terminals": {
+      "comment": "UPPERCASE symbols in rule bodies are terminals (tokens)",
+      "name": "entity.name.function.token.lig",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+
+    "nonterminals": {
+      "comment": "lowercase symbols in rule bodies are nonterminals",
+      "name": "entity.name.class.nonterminal.lig",
+      "match": "\\b[a-z_][A-Za-z0-9_']*\\b"
+    }
+  }
+}

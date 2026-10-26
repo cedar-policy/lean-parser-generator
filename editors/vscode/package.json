@@ -1,0 +1,66 @@
+{
+  "name": "lig-language-server",
+  "displayName": "LIG Grammar (LeanParserGenerator)",
+  "description": "Diagnostics for .lig grammar files via the lig-language-server LSP.",
+  "version": "0.1.0",
+  "publisher": "leanparsergenerator",
+  "engines": {
+    "vscode": "^1.82.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:lig"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "lig",
+        "aliases": [
+          "LIG Grammar",
+          "lig"
+        ],
+        "extensions": [
+          ".lig"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "lig",
+        "scopeName": "source.lig",
+        "path": "./syntaxes/lig.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "LIG Language Server",
+      "properties": {
+        "lig.serverPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the `lig-language-server` executable. If empty, the extension looks for `.lake/build/bin/lig-language-server` in the workspace folder."
+        },
+        "lig.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace the communication between VS Code and the language server."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.82.0"
+  }
+}

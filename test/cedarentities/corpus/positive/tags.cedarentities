@@ -1,0 +1,3 @@
+// A tags block after the attribute record.
+instance User::"alice" in [UserGroup::"AVTeam"] { role: "admin" } tags { team: "AV", tier: 2 };
+instance User::"bob" tags { team: "eng" };

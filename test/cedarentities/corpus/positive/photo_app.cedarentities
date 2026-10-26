@@ -1,0 +1,12 @@
+namespace PhotoApp {
+  instance User::"alice" in [UserGroup::"alice_friends", UserGroup::"AVTeam"] {
+    userId: "897345789237492878",
+    personInformation: { age: 25, name: "alice" }
+  };
+  instance Photo::"vacationPhoto.jpg" {
+    private: false,
+    account: Account::"ahmad"
+  };
+  instance UserGroup::"alice_friends";
+  instance UserGroup::"AVTeam";
+}
