@@ -1,0 +1,41 @@
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  copyright:
+    name: Check copyright notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: scripts/check-copyright.sh --all
+
+  build_and_test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install elan
+        shell: bash
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o elan-init.sh
+          bash elan-init.sh -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Show toolchain
+        run: lake --version
+      # Default targets: the generator, the language server, and VerifiedSmoke
+      # (calc proofs, lexer/parser roundtrips). VerifiedMid and VerifiedHeavy are
+      # not built here; they are minutes-to-hours of native_decide.
+      - name: Build default targets (includes VerifiedSmoke)
+        run: lake build
+      - name: Build parser tests
+        run: lake build ParserTests
+      - name: Bootstrap agreement test
+        run: lake exe lig-bootstrap-test
+      - name: Cedar entities corpus test
+        run: lake exe cedarentities-corpus-test
