@@ -181,33 +181,28 @@ structure Options where
       time / `.olean`) shrinks. Set by `%option compress_tables`. Defaults to
       `false`. -/
   compressTables : Bool := false
-  /-- When true, and the grammar has a `%lexer` block, the generator also emits the
-      roundtrip module `<Base>LexerRoundtrip.lean`, which proves that rendering a
-      constant-token list and lexing it back returns the same list (DESIGN §16.4).
-      Set by `%option roundtrip_lexer`. Ignored without a `%lexer` block. Defaults to
+  /-- When true, and the grammar has a `%lexer` block, the generator also emits
+      `<Base>LexerRoundtrip.lean`. The handwritten
+      `<Base>LexerRoundtripSupport.lean` module supplies `renderTok`; the generated
+      `render_roundtrip` theorem covers arbitrary lists whose elements satisfy the
+      decidable structural `RoundtrippableTok` predicate. The current backend
+      accepts only one-mode, `.stay` lexers with a skipped space separator. Set by
+      `%option roundtrip_lexer`. Ignored without a `%lexer` block. Defaults to
       `false`. -/
   roundtripLexer : Bool := false
   /-- When set to a token-generator function name, and the grammar has a `%lexer`
-      block, the generator also emits the parser roundtrip module
-      `<Base>ParserRoundtrip.lean`, which states that generating the token list of a
-      start-symbol AST with the named `unparse` and parsing it back returns that AST
-      (DESIGN §16.5). The function (named here, e.g.
-      `%option roundtrip_parser unparsePolicies`) must have type
-      `<StartTy> → List <Tok>` and be in scope through `%header`. This primitive is
-      token-level and does not involve the lexer. The module proves a hole-free
-      concrete corpus by `native_decide` and leaves one general-statement hole.
-      `none` (the default) emits no parser roundtrip module. -/
+      block, the generator also emits `<Base>ParserRoundtrip.lean`. The named
+      function has type `<StartTy> → List <Tok>` and is imported from the
+      handwritten `<Base>Unparse` module. The generated module defines
+      `parseRoundtrip`; it states no corpus theorem or universal claim about the
+      user function. `none` (the default) emits no parser roundtrip module. -/
   roundtripParser : Option String := none
-  /-- When set alongside `roundtrip_parser`, names a complete token renderer
-      `renderTok : <Tok> → String` (in scope through `%header`). Given it, the parser
-      roundtrip module additionally emits a *formatter idempotence* lemma — formatting
-      the token stream with whitespace separators re-lexes to the same tokens — and
-      the *full* AST↔source roundtrip, the composition of the token-level parser
-      roundtrip with the lexer roundtrip. It holds only when the renderer is complete
-      (every token `unparse` emits renders to text that re-lexes to it) and the lexer
-      skips whitespace, so the generated statements make that explicit. Without it,
-      only the token-level parser roundtrip is emitted. Set by
-      `%option roundtrip_format renderTok`. -/
+  /-- When set alongside `roundtrip_parser`, names a token renderer
+      `renderTok : <Tok> → String` imported from the handwritten
+      `<Base>Unparse` module. The parser roundtrip module then also defines
+      `format`, `relex`, and `fullRoundtrip`. It does not prove that the renderer
+      or unparser is complete; those properties belong in handwritten universal
+      theorems. Without this option, only `parseRoundtrip` is emitted. -/
   roundtripFormat : Option String := none
   /-- The dotted module prefix under which the generated modules live, e.g. `calc`
       so the parser imports its lexer as `calc.CalcLexer` and a caller imports

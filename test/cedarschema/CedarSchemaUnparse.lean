@@ -19,12 +19,11 @@ module
 `test/cedarschema/CedarSchemaUnparse.lean` — the token generator and token renderer
 for the Cedar-schema parser roundtrip (DESIGN §16.5).
 
-As with `CedarUnparse`, these reference `Tok` (from the generated
-`CedarSchemaLexer`), so they live here rather than in the AST or the shared
-`%header`. `unparseSchema` is the parser-roundtrip primitive
-(`%option roundtrip_parser unparseSchema`); `renderTok` is the formatter's complete
-token renderer (`%option roundtrip_format renderTok`). Both cover the type- and
-entity-declaration sublanguage the roundtrip corpus exercises.
+As with `CedarUnparse`, these definitions reference `Tok` from the generated
+`CedarSchemaLexer`, so they live here rather than in the AST or shared `%header`.
+`unparseSchema` is named by `%option roundtrip_parser`; `renderTok` is named by
+`%option roundtrip_format` and reused by the lexer roundtrip support module. The
+generated modules make no universal claim about either handwritten function.
 -/
 public import cedarschema.CedarSchemaLexer
 public import cedarschema.CedarSchemaAst
@@ -36,7 +35,8 @@ namespace CedarSchemaUnparse
 
 open CedarSchema
 
-/-- A complete token renderer: every token maps to surface text that re-lexes to it. -/
+/-- A token renderer. `RoundtrippableTok` in the generated lexer roundtrip module
+    states exactly which value-token payloads this map reproduces. -/
 def renderTok : Tok → String
   | .NAMESPACE => "namespace" | .ENTITY => "entity" | .IN => "in" | .TYPE => "type"
   | .SET => "Set" | .APPLIESTO => "appliesTo"
@@ -111,27 +111,5 @@ def unparseNamespace : Annotated Namespace → List Tok
 /-- Token generator for a `Schema` CST (parser roundtrip, DESIGN §16.5). -/
 def unparseSchema (s : Schema) : List Tok :=
   (s.namespaces.map unparseNamespace).flatten
-
-/-! ### Roundtrip corpus (the specification)
-
-`corpus` is the list of schemas the generated `CedarSchemaParserRoundtrip` proves
-the roundtrip for; it lives here so regeneration never overwrites it. Adding a
-witness extends every roundtrip theorem to cover it. These are `type` and `entity`
-declarations in named and anonymous namespaces, with `Set<…>` and record types —
-the sublanguage `unparseSchema`/`renderTok` cover. -/
-
-def ann (data : Declaration) : Annotated Declaration := ⟨data, []⟩
-def ns (name : Option Path) (decls : List (Annotated Declaration)) : Annotated Namespace :=
-  ⟨⟨name, decls⟩, []⟩
-
-def corpus : List Schema :=
-  [ ⟨[]⟩,
-    ⟨[ns none [ann (.type (TypeDecl.mk (.ident "Age") (.ident (Path.single .longKw))))]]⟩,
-    ⟨[ns (some (Path.single (.ident "NS")))
-        [ann (.type (TypeDecl.mk (.ident "Names") (.set (.ident (Path.single .stringKw)))))]]⟩,
-    ⟨[ns none [ann (.entity (.standard (StandardEntityDecl.mk [.ident "User"] []
-        [⟨AttrDecl.mk "age" true (.ident (Path.single .longKw)), []⟩] none)))]]⟩,
-    ⟨[ns none [ann (.entity (.standard (StandardEntityDecl.mk [.ident "Photo"]
-        [Path.single (.ident "Album")] [] none)))]]⟩ ]
 
 end CedarSchemaUnparse

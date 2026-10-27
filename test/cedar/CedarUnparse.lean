@@ -26,11 +26,10 @@ there. `CedarUnparse` imports both the lexer (for `Tok`) and the AST, and the
 generated `CedarParserRoundtrip` imports `CedarUnparse` — no cycle.
 
 `unparsePolicies` is the parser-roundtrip primitive (`%option roundtrip_parser
-unparsePolicies`): the inverse of what `CedarParser.parse` consumes. `renderTok` is
-the formatter's token renderer (`%option roundtrip_format renderTok`): a *complete*
-map from every token to surface text that re-lexes to it. Both cover the scope-only
-policy sublanguage the roundtrip corpus exercises; a richer example extends the
-corpus, not the proof shape.
+unparsePolicies`). `renderTok` is the formatter renderer named by
+`%option roundtrip_format renderTok` and reused by the lexer roundtrip support
+module. The generated modules make no claim that these handwritten functions are
+universal inverses.
 -/
 public import cedar.CedarLexer
 public import cedar.CedarAst
@@ -42,11 +41,10 @@ namespace CedarUnparse
 
 open Cedar
 
-/-- A complete token renderer: every token maps to surface text that the lexer
-    re-lexes to the same token. Keywords render to their spelling, value tokens to
-    a canonical form, punctuation to its literal. This is the formatter's per-token
-    map (`%option roundtrip_format`); completeness is what makes the formatter
-    idempotence and the full roundtrip hold. -/
+/-- A token renderer. Keywords and punctuation use their source spelling; value
+    tokens use a canonical candidate spelling. The lexer roundtrip's
+    `RoundtrippableTok` predicate states exactly which payload values this map
+    reproduces. -/
 def renderTok : Tok → String
   | .TRUE => "true" | .FALSE => "false" | .IF => "if"
   | .PERMIT => "permit" | .FORBID => "forbid" | .WHEN => "when" | .UNLESS => "unless"
@@ -110,29 +108,5 @@ def unparsePolicy : Policy → List Tok
 /-- Token generator for a `Policies` CST (parser roundtrip, DESIGN §16.5). -/
 def unparsePolicies (p : Policies) : List Tok :=
   (p.policies.map unparsePolicy).flatten
-
-/-! ### Roundtrip corpus (the specification)
-
-`corpus` is the list of ASTs the generated `CedarParserRoundtrip` proves the
-roundtrip for. It lives here, in the user's module, so regeneration never
-overwrites it. Adding a witness here — and nothing else — extends every roundtrip
-theorem to cover it. These are scope-only `permit`/`forbid` policies, annotations,
-a custom-effect identifier, and a `when { true }` condition: the sublanguage
-`unparsePolicies`/`renderTok` cover. -/
-
-def scopeVar (name : Ident) : VariableDef := VariableDef.mk name none none none
-def pol (effect : Ident) (vars : List VariableDef)
-    (conds : List Cond := []) (annotations : List Annotation := []) : Policy :=
-  .policy (PolicyImpl.mk annotations effect vars conds)
-
-def corpus : List Policies :=
-  [ ⟨[]⟩,
-    ⟨[pol .permit [scopeVar .principal, scopeVar .action, scopeVar .resource]]⟩,
-    ⟨[pol .forbid [scopeVar .principal]]⟩,
-    ⟨[pol (.ident "custom") [scopeVar .principal]]⟩,
-    ⟨[pol .permit [scopeVar .principal], pol .forbid [scopeVar .resource]]⟩,
-    ⟨[pol .permit [scopeVar .principal]
-        (annotations := [Annotation.mk (.ident "id") (some (.string "v"))])]⟩,
-    ⟨[pol .permit [scopeVar .principal] [Cond.mk .when (Expr.fromPrimary (.literal .trueLit))]]⟩ ]
 
 end CedarUnparse
