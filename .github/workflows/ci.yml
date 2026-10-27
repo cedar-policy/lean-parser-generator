@@ -33,6 +33,13 @@ jobs:
       # not built here; they are minutes-to-hours of native_decide.
       - name: Build default targets (includes VerifiedSmoke)
         run: lake build
+      # Build the runtime library's static archive on its own. This is the
+      # library a downstream links against to run a generated parser (e.g.
+      # cedar-lean-ffi). Building it in isolation fails if the runtime/lexer
+      # subset stops compiling to native or starts importing generator-only
+      # modules (frontend, construction, emit, LSP, bootstrap).
+      - name: Build runtime static library
+        run: lake build LeanParserGeneratorRuntime:static
       - name: Build parser tests
         run: lake build ParserTests
       - name: Bootstrap agreement test
