@@ -32,7 +32,23 @@ package «LeanParserGenerator» where
     ⟨`weak.warn.classDefReducibility, false⟩
   ]
 
-/-- Generated parsers need to import that library. -/
+/-- The runtime that generated parsers and lexers import and link against. It
+    holds only `LeanParserGenerator.Runtime.*` and `LeanParserGenerator.Lexer.*`,
+    none of the generator (frontend, Pager construction, emit, LSP, bootstrap).
+
+    A downstream that only runs a generated parser should build and link this
+    library, not `LeanParserGenerator`. Linking `LeanParserGenerator:static`
+    compiles the whole generator to native code, including the bootstrap
+    `Frontend.Generated.LigVerified`, which a generated parser never calls. -/
+@[default_target]
+lean_lib «LeanParserGeneratorRuntime» where
+  globs := #[.one `LeanParserGenerator.Runtime,
+    .submodules `LeanParserGenerator.Runtime,
+    .submodules `LeanParserGenerator.Lexer]
+
+/-- The whole package: the runtime above plus the generator itself (frontend,
+    construction, emit, LSP, bootstrap). `import LeanParserGenerator` and the
+    `leanparsergenerator` executable pull this. -/
 @[default_target]
 lean_lib «LeanParserGenerator» where
   globs := #[.one `LeanParserGenerator, .submodules `LeanParserGenerator]

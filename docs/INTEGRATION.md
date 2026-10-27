@@ -310,3 +310,34 @@ other nonzero statuses likewise fail before stale parser code is compiled.
 For several grammars, put their paths/module names in an array and run the same
 mtime-and-process block for each entry, as demonstrated by this repository's
 `parsers` target.
+
+## 8. Linking the Lean static libraries (FFI)
+
+A Lake build of a downstream package builds only the modules it imports, so an
+application that imports `MyProject.Generated.ExprParser` already pulls just the
+`LeanParserGenerator.Runtime.*` and `LeanParserGenerator.Lexer.*` closure, not
+the generator.
+
+The one case that needs care is linking the Lean static archives into a native
+(e.g. Rust FFI) build by naming targets explicitly. The package exposes two
+libraries:
+
+- `LeanParserGeneratorRuntime` — only `Runtime.*` and `Lexer.*`, the code a
+  generated parser and lexer call at run time. This is what to link.
+- `LeanParserGenerator` — the whole package, including the generator frontend,
+  Pager construction, emit, LSP, and the bootstrap
+  `Frontend.Generated.LigVerified`. A generated parser never calls any of it.
+
+Link the runtime library:
+
+```sh
+lake build MyProject:static LeanParserGeneratorRuntime:static
+```
+
+`LeanParserGeneratorRuntime:static` produces
+`libLeanParserGenerator_LeanParserGeneratorRuntime.a`, which contains only the
+runtime and lexer objects. Naming `LeanParserGenerator:static` instead compiles
+the entire generator to native code and archives the generator-only modules,
+which the parser does not use. Generating the parser still needs the full
+package, but that is the `leanparsergenerator` executable, which a separate Lake
+target fetches (section 7) — not the link step.
