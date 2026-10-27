@@ -32,8 +32,10 @@ package «LeanParserGenerator» where
     ⟨`weak.warn.classDefReducibility, false⟩
   ]
 
+/-- Generated parsers need to import that library. -/
 @[default_target]
 lean_lib «LeanParserGenerator» where
+  globs := #[.one `LeanParserGenerator, .submodules `LeanParserGenerator]
 
 @[default_target]
 lean_exe «leanparsergenerator» where
