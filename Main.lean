@@ -227,10 +227,9 @@ def generateInferred (ligPath : String) : IO UInt32 := do
                 IO.FS.writeFile rtPath rtSource
                 IO.println s!"wrote {rtPath} (module {rtModule})"
           -- Parser roundtrip module, opt-in via `%option roundtrip_parser <unparse>`.
-          -- Needs the generated lexer (the formatter re-lexes through it) and a
-          -- user module `<Base>Unparse` defining `unparse` (and `renderTok` for the
-          -- formatter), which the roundtrip module imports.
-          if genLexer && surface.options.roundtripParser.isSome then
+          -- The handwritten `<Base>Unparse` module defines `unparse`; a generated
+          -- lexer is needed only for `%option roundtrip_format`.
+          if surface.options.roundtripParser.isSome then
             let prtModule := executableModule ++ "Roundtrip"
             let unparseModule := base ++ "Unparse"
             let unparseImport := qualify prefix_ unparseModule

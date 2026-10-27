@@ -376,6 +376,12 @@ inductive Forall (P : Tok → Prop) : List Tok → Prop where
   | nil : Forall P []
   | cons {t : Tok} {ts : List Tok} : P t → Forall P ts → Forall P (t :: ts)
 
+
+@[simp] theorem Forall.append {P : Tok → Prop} {xs ys : List Tok}
+    (hxs : Forall P xs) (hys : Forall P ys) : Forall P (xs ++ ys) := by
+  induction hxs with
+  | nil => exact hys
+  | cons head tail ih => exact .cons head ih
 theorem hpeel_of_roundtrippable (c : Compiled Tok) (renderTok : Tok → String) (sepCh : Char)
     (hsep : SeparatorOk c sepCh) :
     ∀ (t : Tok) (ts : List Tok) (acc : List Tok) (f pos : Nat),

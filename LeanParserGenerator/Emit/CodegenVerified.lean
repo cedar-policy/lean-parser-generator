@@ -833,6 +833,92 @@ def emitRefinement (s : Surface) (g' : IR.Grammar) (execModule : String) : Strin
   ]
   paras [lines encode.toList, lines semantic.toList, fixed]
 
+/-- Emit token leaves and one source-order parse-tree constructor per production,
+    with a `ptSem` equation for each production. These helpers hide terminal and
+    production `Fin` witnesses plus the reversed `ParseTreeList` representation
+    from handwritten certificates. They are generated only when
+    `%option roundtrip_parser` is enabled. -/
+def emitParseTreeConstructors (s : Surface) (g' : IR.Grammar) (_augProd : Nat) : String :=
+  if s.options.roundtripParser.isNone then "" else
+  let eofTerm := g'.numTerminals - 1
+  let tokTy := s.tokenType
+  let tokenBlocks := s.tokens.toList.zipIdx.map fun (decl, index) =>
+    let term := if decl.name == s.eof then eofTerm else index
+    let args := if decl.hasVal then s!"\n    (value : {decl.ty})" else ""
+    let token := if decl.hasVal then s!"{tokTy}.{decl.name} value" else s!"{tokTy}.{decl.name}"
+    s!"/-- Terminal parse tree for `{decl.name}` with its concrete grammar index. -/\n" ++
+    s!"noncomputable def parseTreeToken{decl.name}{args} :\n" ++
+    s!"    Grammar.ParseTree (G := grammarInst)\n" ++
+    s!"      (.T (⟨{term}, of_decide_eq_true rfl⟩ : Terminal)) [{token}] :=\n" ++
+    s!"  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)\n" ++
+    s!"    (.terminal (G := grammarInst) ({token}))"
+  let blocks := (List.range g'.prods.size).map fun pi => Id.run do
+    let prod := g'.prods[pi]!
+    let production := s!"(⟨{pi}, of_decide_eq_true rfl⟩ : Production)"
+    let mut args : List String := []
+    let mut callArgs : List String := []
+    let mut words : List String := []
+    let mut trees : List String := []
+    let mut semantics : List String := []
+    for (sym, i) in prod.rhs.zipIdx do
+      match sym with
+      | .nonterm nt =>
+          let word := s!"word{i}"
+          let tree := s!"tree{i}"
+          args := args ++ ["{" ++ word ++ " : List " ++ tokTy ++ "}",
+            s!"({tree} : Grammar.ParseTree (G := grammarInst)\n      (.NT (⟨{nt}, of_decide_eq_true rfl⟩ : NonTerminal)) {word})"]
+          words := words ++ [word]
+          trees := trees ++ [tree]
+          callArgs := callArgs ++ [tree]
+          semantics := semantics ++ [s!"Grammar.ptSem {tree}"]
+      | .term term =>
+          let tokenName := if term == eofTerm then s.eof else (s.tokens[term]!).name
+          let tokenDecl := if term == eofTerm then none else s.tokens[term]?
+          let value := s!"value{i}"
+          match tokenDecl with
+          | some decl =>
+              if decl.hasVal then
+                args := args ++ [s!"({value} : {decl.ty})"]
+                callArgs := callArgs ++ [value]
+                semantics := semantics ++ [value]
+              else semantics := semantics ++ ["()"]
+          | none => semantics := semantics ++ ["()"]
+          let token := match tokenDecl with
+            | some decl =>
+                if decl.hasVal then s!"{tokTy}.{tokenName} {value}"
+                else s!"{tokTy}.{tokenName}"
+            | none => s!"{tokTy}.{tokenName}"
+          let tokenTree := s!"parseTreeToken{tokenName}" ++
+            (match tokenDecl with
+             | some decl => if decl.hasVal then s!" {value}" else ""
+             | none => "")
+          words := words ++ [s!"[{token}]"]
+          trees := trees ++ [s!"({tokenTree})"]
+    let word := if words.isEmpty then "[]" else String.intercalate " ++ " words
+    let treeList := trees.foldl (fun rest tree => s!".cons ({rest}) ({tree})") ".nil"
+    let argsText := if args.isEmpty then "" else "\n    " ++ String.intercalate "\n    " args
+    let call := if callArgs.isEmpty then s!"parseTreeProduction{pi}"
+      else s!"parseTreeProduction{pi} " ++ String.intercalate " " callArgs
+    let actionArgs := semantics.reverse.map fun value => "(" ++ value ++ ")"
+    let action := String.intercalate " " ([s!"semanticAction{pi}"] ++ actionArgs)
+    let reductions := String.intercalate ", " <|
+      ["Grammar.ptSem_nonTerminal"] ++
+      List.replicate prod.rhs.length "Grammar.ptlSem_cons" ++
+      ["Grammar.ptlSem_nil"]
+    return s!"/-- Parse-tree constructor for production {pi}, in source RHS order. -/\n" ++
+    s!"noncomputable def parseTreeProduction{pi}{argsText} :\n" ++
+    s!"    Grammar.ParseTree (G := grammarInst)\n" ++
+    s!"      (.NT (⟨{prod.lhs}, of_decide_eq_true rfl⟩ : NonTerminal))\n" ++
+    s!"      ({word}) :=\n" ++
+    s!"  .nonTerminal (G := grammarInst) {production} ({treeList})\n\n" ++
+    s!"@[simp] theorem parseTreeProduction{pi}_sem{argsText} :\n" ++
+    s!"    Grammar.ptSem ({call}) = {action} := by\n" ++
+    s!"  unfold parseTreeProduction{pi}\n" ++
+    s!"  erw [{reductions}]\n" ++
+    s!"  with_unfolding_all rfl"
+  String.intercalate "\n\n" tokenBlocks ++ "\n\n" ++
+    String.intercalate "\n\n" blocks ++ "\n"
+
 /-- Render the dependent specification from shared prepared construction data. -/
 def generateVerifiedFrom (s : Surface) (prepared : PreparedGrammar)
     (moduleName : String := "CalcVerified")
@@ -928,6 +1014,7 @@ def generateVerifiedFrom (s : Surface) (prepared : PreparedGrammar)
     let grammarCmds ← emitGrammar s g' augProd ntNames eofIdx
     let grammarStr ← Quote.renderCmds grammarCmds
     let automatonStr ← emitAutomaton g' tables ann nul fst
+    let parseTreeConstructors := emitParseTreeConstructors s g' augProd
     let parts : List String := [
       "module",
       "-- Generated by LeanParserGenerator (dependent specification backend). DO NOT EDIT.",
@@ -967,7 +1054,8 @@ def generateVerifiedFrom (s : Surface) (prepared : PreparedGrammar)
       grammarStr,
       tokenStr,
       sigWiring,
-      grammarWiring,
+      grammarWiring ++ (if parseTreeConstructors.isEmpty then ""
+        else "\n\n" ++ parseTreeConstructors),
       automatonStr,
       autWiring,
       emitVerifiedGrammarViewAgreement s eofIdx numT' numN' nP',

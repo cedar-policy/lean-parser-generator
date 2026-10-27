@@ -3,6 +3,7 @@ import imp.ImpAst
 open Imp
 }
 %option module_prefix imp
+%option roundtrip_parser unparseCom
 %tokentype Tok
 %token SKIP IF THEN ELSE WHILE DO
 %token TRUE FALSE NOT AND

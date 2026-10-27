@@ -1775,24 +1775,33 @@ The generated module proves the flat-runtime premises with private finite proofs
 emitted action table. It contains no per-token examples, reachability witnesses, constructor
 coverage claim, fixed token list, `guarantees` string, or `#eval`.
 
-### 16.5 Parser roundtrip definitions
+### 16.5 Parser roundtrip certificates
 
-`%option roundtrip_parser <unparse>` emits `FooParserRoundtrip.lean`, where
-`unparse : StartTy → List Tok` is defined in the handwritten `FooUnparse` module. The
-generated module defines:
+`%option roundtrip_parser <unparse>` works with generated or handwritten lexers. It adds
+source-order `parseTreeToken*`, `parseTreeProductionN`, and
+`parseTreeProductionN_sem` helpers to `FooVerified.lean`. The helpers hide terminal indices
+and the reversed dependent `ParseTreeList`. `FooParserRoundtrip.lean` defines
+`Certificate tokens value`, computes sufficient logarithmic fuel from its tree, and proves
+`parse_certificate` by applying the existing `parser_complete` theorem. The input word is
+`tokens ++ [EOF]`, matching the augmented start production. No corpus is generated.
 
-```lean
-def parseRoundtrip (t : StartTy) (fuel : Nat := 20) : Option StartTy :=
-  FooParser.parse ((unparse t).map Positioned.dummy) fuel
-```
+The user supplies `FooUnparse.lean` with the named token function and a separate proof
+module. That proof selects productions with the generated helpers and constructs a
+certificate for every value in its printable domain. The generator cannot infer this mapping
+from arbitrary Lean semantic actions. A restricted printable type may map to the parser result
+type, as `CedarPrintable.PrintablePolicies.toPolicies` does.
 
-The generator does not claim this is a universal inverse. That claim depends on the
-handwritten `unparse`, may require a size-dependent fuel theorem, and is false for a partial
-unparser. The module therefore contains no corpus and no generated theorem. Applications
-can prove the inverse they need against `parseRoundtrip`.
+The workflow after a grammar edit is: regenerate first, then compile the handwritten proof.
+Production indices or RHS shapes may have changed, so Lean reports exactly which certificate
+branches need updating. The current examples are:
 
-When `%option roundtrip_format <renderTok>` is also present, the module adds the
-corpus-independent `format`, `relex`, and `fullRoundtrip` definitions. These compose the
-user's token renderer, generated lexer, and parser. A handwritten theorem can combine
-`FooLexerRoundtrip.render_roundtrip` with a parser inverse theorem and a proof that
-`unparse` emits only `RoundtrippableTok` values.
+- calc: every `Int` has a token-level certificate; `PrintableInt` adds the lexer obligation;
+- IMP: `PrintableCom` enforces the grammar's right-shaped sequence and covers all `AExp` and
+  `BExp` values with parenthesized printers;
+- Cedar: `PrintablePolicies` contains permit/forbid policies with scope-variable lists and
+  converts to `Policies`; its proof composes the parser certificate with the universal lexer
+  theorem.
+
+`%option roundtrip_format <renderTok>` additionally emits `format`, `relex`, and
+`fullRoundtrip` definitions. A handwritten full theorem supplies both a parser certificate and
+a proof that every emitted token satisfies the lexer's `RoundtrippableTok` predicate.
