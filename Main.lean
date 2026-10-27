@@ -226,7 +226,6 @@ def generateInferred (ligPath : String) : IO UInt32 := do
                 let rtPath := dir ++ rtModule ++ ".lean"
                 IO.FS.writeFile rtPath rtSource
                 IO.println s!"wrote {rtPath} (module {rtModule})"
-          -- Parser roundtrip module, opt-in via `%option roundtrip_parser <printer>`.
           -- Parser roundtrip module, opt-in via `%option roundtrip_parser <unparse>`.
           -- Needs the generated lexer (the formatter re-lexes through it) and a
           -- user module `<Base>Unparse` defining `unparse` (and `renderTok` for the

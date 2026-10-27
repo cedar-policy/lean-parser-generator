@@ -18,6 +18,7 @@ module
 public import LeanParserGenerator.Lexer.Engine
 public import LeanParserGenerator.Lexer.StringScan
 public import LeanParserGenerator.Lexer.DFA
+public import LeanParserGenerator.Lexer.FlatTokenize
 
 
 @[expose] public section
@@ -116,7 +117,7 @@ theorem scan_go_append (dfa : DFA) :
     and typically discharged by `native_decide`), then scanning
     `lit ++ (sepCh :: rest)` gives the same `(rule, len)` as scanning `lit` alone —
     *for every* `rest`. This is what makes the first token of a rendered list peel
-    off independently of everything after its separator (LEXER.md open q2): the
+    off independently of everything after its separator: the
     only suffix character that could have mattered is the separator head, and the
     token's lexeme already dies on it. `diesOn_head` drops the variable tail so the
     side condition is a finite `native_decide` check on `[sepCh]`. -/
@@ -281,46 +282,295 @@ theorem peel_skip (c : Compiled Tok) (fuel : Nat) (sepCh : Char) (slit : List Ch
     hscan' hlen0 hemit' hstay'
   rw [this, hdrop]
 
-/-! ### General list-level roundtrip from a per-token peel
+/-! ### Universal printer/lexer roundtrip
 
-`render` prints a token list with a fixed separator after each token. The
-list-level roundtrip is proved by induction on the token list, given a single
-per-token hypothesis `hpeel`: rendering one token and its separator, in front of
-any already-rendered suffix, tokenizes by peeling exactly that one token and
-continuing on the suffix (with the mode stack back at the start). `hpeel` is the
-per-token/separator fact the design (LEXER.md, open q2) leaves per lexer; here it
-is an explicit assumption so the fold itself is proved once and for all. -/
+A token is roundtrippable when its rendered spelling is a nonempty complete lexer
+match, the action emits that same token and stays in the start mode, and the fixed
+one-character separator stops both scans at the token boundary. These are the
+structural facts needed by `peel_emit` and `peel_skip`. The public theorem is
+universal over every list whose elements satisfy this predicate; it does not use a
+finite corpus or a generated list of examples. -/
+
+/-- `getD` returns the indexed element when the index is in bounds. -/
+theorem getD_eq_getElem {α : Type} (a : Array α) (i : Nat) (d : α)
+    (h : i < a.size) : a.getD i d = a[i] :=
+  (Array.getElem_eq_getD d).symm
+
+/-- If every action in an array stays in the current mode, so does `getD`; its
+    out-of-bounds default action also stays. -/
+theorem getD_act_trans_stay (arr : Array (String → Act Tok))
+    (hall : ∀ x ∈ arr, ∀ s, (x s).trans = Trans.stay) (rule : Nat) (s : String) :
+    ((arr.getD rule (fun _ => {})) s).trans = Trans.stay := by
+  rw [Array.getD]
+  split
+  · next h => exact hall _ (Array.getElem_mem h) s
+  · rfl
+
+def RoundtrippableTok (c : Compiled Tok) (renderTok : Tok → String) (sepCh : Char)
+    (t : Tok) : Prop :=
+  match (renderTok t).toList with
+  | [] => False
+  | ch :: lit =>
+      DiesOn (c.dfas.getD c.start default) 0 (ch :: lit) [sepCh] ∧
+      DiesOn (c.dfas.getD c.start default) 0 [sepCh] [ch] ∧
+      match DFA.scan (c.dfas.getD c.start default) (ch :: lit) with
+      | none => False
+      | some (rule, len) =>
+          len = (ch :: lit).length ∧
+          (((c.acts.getD c.start #[]).getD rule (fun _ => {}))
+              (String.ofList (ch :: lit))).emit = some t ∧
+          (((c.acts.getD c.start #[]).getD rule (fun _ => {}))
+              (String.ofList (ch :: lit))).trans = Trans.stay
+
+instance [DecidableEq Tok] (c : Compiled Tok) (renderTok : Tok → String) (sepCh : Char)
+    (t : Tok) :
+    Decidable (RoundtrippableTok c renderTok sepCh t) := by
+  unfold RoundtrippableTok
+  split
+  · exact inferInstance
+  · split <;> exact inferInstance
+
+def SeparatorOk (c : Compiled Tok) (sepCh : Char) : Prop :=
+  match DFA.scan (c.dfas.getD c.start default) [sepCh] with
+  | none => False
+  | some (rule, len) =>
+      len = 1 ∧
+      (((c.acts.getD c.start #[]).getD rule (fun _ => {}))
+          (String.singleton sepCh)).emit = none ∧
+      (((c.acts.getD c.start #[]).getD rule (fun _ => {}))
+          (String.singleton sepCh)).trans = Trans.stay
+
+instance (c : Compiled Tok) (sepCh : Char) : Decidable (SeparatorOk c sepCh) := by
+  unfold SeparatorOk
+  split <;> exact inferInstance
+
+theorem peel_skip_eof (c : Compiled Tok) (fuel pos rule len : Nat) (sepCh : Char)
+    (hscan : DFA.scan (c.dfas.getD c.start default) [sepCh] = some (rule, len))
+    (hlen : len = 1)
+    (hemit : (((c.acts.getD c.start #[]).getD rule (fun _ => {}))
+      (String.singleton sepCh)).emit = none)
+    (hstay : (((c.acts.getD c.start #[]).getD rule (fun _ => {}))
+      (String.singleton sepCh)).trans = Trans.stay)
+    (acc : List Tok) :
+    tokenizeAuxDFA c (fuel + 1) [sepCh] pos [c.start] acc =
+      tokenizeAuxDFA c fuel [] (pos + 1) [c.start] acc := by
+  have h := tokenizeAuxDFA_step_skip c fuel sepCh [] pos c.start acc rule len hscan
+    (by omega)
+    (by simpa [hlen] using hemit)
+    (by simpa [hlen] using hstay)
+  simpa [hlen] using h
+
+/-- Render each token and append the separator after it. -/
+def render (renderTok : Tok → String) (sep : String) (ts : List Tok) : String :=
+  ts.foldr (fun t acc => renderTok t ++ sep ++ acc) ""
+
+@[simp] theorem render_nil (renderTok : Tok → String) (sep : String) :
+    render renderTok sep [] = "" := rfl
+
+@[simp] theorem render_cons (renderTok : Tok → String) (sep : String) (t : Tok)
+    (ts : List Tok) :
+    render renderTok sep (t :: ts) = renderTok t ++ sep ++ render renderTok sep ts := rfl
+
+/-- Every element of a token list satisfies `P`. -/
+inductive Forall (P : Tok → Prop) : List Tok → Prop where
+  | nil : Forall P []
+  | cons {t : Tok} {ts : List Tok} : P t → Forall P ts → Forall P (t :: ts)
+
+theorem hpeel_of_roundtrippable (c : Compiled Tok) (renderTok : Tok → String) (sepCh : Char)
+    (hsep : SeparatorOk c sepCh) :
+    ∀ (t : Tok) (ts : List Tok) (acc : List Tok) (f pos : Nat),
+      RoundtrippableTok c renderTok sepCh t →
+      Forall (RoundtrippableTok c renderTok sepCh) ts →
+      (render renderTok (String.singleton sepCh) (t :: ts)).length < f →
+      tokenizeAuxDFA c f
+          (render renderTok (String.singleton sepCh) (t :: ts)).toList
+          pos [c.start] acc =
+        tokenizeAuxDFA c f
+          (render renderTok (String.singleton sepCh) ts).toList
+          (pos + (renderTok t ++ String.singleton sepCh).length) [c.start] (t :: acc) := by
+  intro t ts acc f pos ht hts hf
+  unfold RoundtrippableTok at ht
+  cases hr : (renderTok t).toList with
+  | nil => simp only [hr] at ht
+  | cons ch lit =>
+      simp only [hr] at ht
+      rcases ht with ⟨htdies, hsepdies, ht⟩
+      cases hs : DFA.scan (c.dfas.getD c.start default) (ch :: lit) with
+      | none => simp only [hs] at ht
+      | some out =>
+          obtain ⟨rule, len⟩ := out
+          simp only [hs] at ht
+          rcases ht with ⟨hlen, hemit, hstay⟩
+          unfold SeparatorOk at hsep
+          cases hsscan : DFA.scan (c.dfas.getD c.start default) [sepCh] with
+          | none => simp only [hsscan] at hsep
+          | some sout =>
+              obtain ⟨sepRule, sepLen⟩ := sout
+              simp only [hsscan] at hsep
+              rcases hsep with ⟨hsepLen, hsepEmit, hsepStay⟩
+              have hrender : renderTok t = String.ofList (ch :: lit) := by
+                apply String.toList_inj.mp
+                simp only [hr, String.toList_ofList]
+              have hprefixLen : (renderTok t ++ String.singleton sepCh).length = len + 1 := by
+                rw [String.length_append, String.length_singleton, hlen,
+                  ← String.length_toList, hr]
+              have hlenPos : 0 < len := by rw [hlen]; simp
+              have hwholeLen :
+                  (render renderTok (String.singleton sepCh) (t :: ts)).length =
+                    (renderTok t ++ String.singleton sepCh).length +
+                      (render renderTok (String.singleton sepCh) ts).length := by
+                simp [render, String.length_append, Nat.add_assoc]
+              rw [hwholeLen] at hf
+              have hf2 : ∃ k, f = k + 2 := by
+                have hpref : 2 ≤ (renderTok t ++ String.singleton sepCh).length := by
+                  rw [hprefixLen]
+                  omega
+                exact ⟨f - 2, by omega⟩
+              obtain ⟨k, rfl⟩ := hf2
+              have hemitStep := peel_emit c (k + 1) ch lit sepCh
+                (render renderTok (String.singleton sepCh) ts).toList pos rule len t
+                htdies hs hlen hemit hstay acc
+              have hemitStep' :
+                  tokenizeAuxDFA c (k + 2)
+                      (render renderTok (String.singleton sepCh) (t :: ts)).toList
+                      pos [c.start] acc =
+                    tokenizeAuxDFA c (k + 1)
+                      (sepCh :: (render renderTok (String.singleton sepCh) ts).toList)
+                      (pos + len) [c.start] (t :: acc) := by
+                rw [render_cons, hrender]
+                simpa only [String.toList_append, String.toList_ofList,
+                  String.toList_singleton, List.append_assoc, List.singleton_append,
+                  Nat.add_assoc] using hemitStep
+              rw [hemitStep']
+              cases ts with
+              | nil =>
+                  simp only [render_nil, String.toList_empty]
+                  have hskip := peel_skip_eof c k (pos + len) sepRule sepLen sepCh hsscan
+                    hsepLen hsepEmit hsepStay (t :: acc)
+                  rw [hskip]
+                  rw [hprefixLen]
+                  apply tokenizeAuxDFA_fuel_irrel c
+                  · have : 0 < k := by
+                      simp only [render_nil, String.length_empty, Nat.add_zero] at hf
+                      rw [hprefixLen] at hf
+                      omega
+                    exact this
+                  · simp
+              | cons u us =>
+                  cases hts with
+                  | cons hu hus =>
+                      unfold RoundtrippableTok at hu
+                      cases huRender : (renderTok u).toList with
+                      | nil => simp only [huRender] at hu
+                      | cons uch ulit =>
+                          simp only [huRender] at hu
+                          have hsdies : DiesOn (c.dfas.getD c.start default) 0 [sepCh] [uch] := hu.2.1
+                          have hskip := peel_skip c k sepCh [] uch
+                            (ulit ++ sepCh :: (render renderTok (String.singleton sepCh) us).toList)
+                            (pos + len) sepRule sepLen hsdies hsscan hsepLen
+                            (by simpa using hsepEmit) (by simpa using hsepStay) (t :: acc)
+                          have hskip' :
+                              tokenizeAuxDFA c (k + 1)
+                                  (sepCh :: (render renderTok (String.singleton sepCh) (u :: us)).toList)
+                                  (pos + len) [c.start] (t :: acc) =
+                                tokenizeAuxDFA c k
+                                  (render renderTok (String.singleton sepCh) (u :: us)).toList
+                                  (pos + len + 1) [c.start] (t :: acc) := by
+                            rw [render_cons]
+                            simpa only [String.toList_append, String.toList_singleton, huRender,
+                              List.append_assoc, List.singleton_append, List.cons_append,
+                              List.nil_append, hsepLen] using hskip
+                          rw [hskip']
+                          rw [hprefixLen]
+                          have hsuf :
+                              (render renderTok (String.singleton sepCh) (u :: us)).length < k := by
+                            rw [hprefixLen] at hf
+                            omega
+                          have hsufk :
+                              (render renderTok (String.singleton sepCh) (u :: us)).toList.length < k := by
+                            simpa only [String.length_toList] using hsuf
+                          apply tokenizeAuxDFA_fuel_irrel c
+                          · exact hsufk
+                          · omega
+
 
 variable (renderTok : Tok → String) (sep : String)
 
-/-- `render ts` = each token rendered, followed by the separator. -/
-def render (ts : List Tok) : String :=
-  ts.foldr (fun t acc => renderTok t ++ sep ++ acc) ""
+theorem tokenize_render_fold_pred (c : Compiled Tok) (f : Nat) (P : Tok → Prop)
+    (hpeel : ∀ (t : Tok) (ts : List Tok) (acc : List Tok) (pos : Nat),
+      P t → Forall P ts →
+      (render renderTok sep (t :: ts)).length < f →
+      tokenizeAuxDFA c f (render renderTok sep (t :: ts)).toList pos [c.start] acc =
+        tokenizeAuxDFA c f (render renderTok sep ts).toList
+          (pos + (renderTok t ++ sep).length) [c.start] (t :: acc)) :
+    ∀ (ts : List Tok) (acc : List Tok) (pos : Nat),
+      Forall P ts →
+      (render renderTok sep ts).length < f →
+      tokenizeAuxDFA c f (render renderTok sep ts).toList pos [c.start] acc =
+        tokenizeAuxDFA c f [] (pos + (render renderTok sep ts).length)
+          [c.start] (ts.reverse ++ acc)
+  | [], acc, pos, _, _ => by simp [render]
+  | t :: ts, acc, pos, hall, hlt => by
+      cases hall with
+      | cons ht hts =>
+          have hsuf : (render renderTok sep ts).length < f := by
+            have h := hlt
+            simp only [render_cons, String.length_append] at h
+            omega
+          rw [hpeel t ts acc pos ht hts hlt]
+          rw [tokenize_render_fold_pred c f P hpeel ts (t :: acc)
+            (pos + (renderTok t ++ sep).length) hts hsuf]
+          cases f with
+          | zero => omega
+          | succ f => simp [tokenizeAuxDFA]
 
-@[simp] theorem render_nil : render renderTok sep [] = "" := rfl
+theorem tokenize_render_pred (c : Compiled Tok) (eof : Tok) (P : Tok → Prop)
+    (heof : c.eofToken = some eof)
+    (hpeel : ∀ (t : Tok) (ts : List Tok) (acc : List Tok) (f pos : Nat),
+      P t → Forall P ts →
+      (render renderTok sep (t :: ts)).length < f →
+      tokenizeAuxDFA c f (render renderTok sep (t :: ts)).toList pos [c.start] acc =
+        tokenizeAuxDFA c f (render renderTok sep ts).toList
+          (pos + (renderTok t ++ sep).length) [c.start] (t :: acc)) :
+    ∀ (ts : List Tok), Forall P ts →
+      Lexer.tokenize c (render renderTok sep ts) = .ok (ts ++ [eof]) := by
+  intro ts hall
+  unfold Lexer.tokenize
+  simp only []
+  rw [tokenize_render_fold_pred renderTok sep c ((render renderTok sep ts).toList.length + 1)
+    P (fun t ts' acc pos hp hs hlen => hpeel t ts' acc _ pos hp hs hlen)
+    ts [] 0 hall (by rw [String.length_toList]; omega)]
+  rw [tokenizeAuxDFA]
+  · rw [heof]; simp
+  · omega
 
-@[simp] theorem render_cons (t : Tok) (ts : List Tok) :
-    render renderTok sep (t :: ts) = renderTok t ++ sep ++ render renderTok sep ts := rfl
 
-/-- **General list roundtrip (fold form).** With a fixed fuel `F` and a per-token
-    peel hypothesis `hpeel` (rendering one token and the separator in front of the
-    rendered suffix peels exactly that token and continues on the suffix), the
-    single-mode loop on `render ts` peels the whole list back, in order, onto the
-    accumulator, ending on empty input. Proved by induction on `ts`; the peel
-    hypothesis is the per-token/separator fact discharged per lexer. -/
-theorem tokenize_render_fold (c : Compiled Tok) (m F : Nat) (pos : Nat)
-    (hpeel : ∀ (t : Tok) (ts : List Tok) (acc : List Tok),
-      tokenizeAuxDFA c F (renderTok t ++ sep ++ render renderTok sep ts).toList pos [m] acc
-        = tokenizeAuxDFA c F (render renderTok sep ts).toList pos [m] (t :: acc)) :
-    ∀ (ts : List Tok) (acc : List Tok),
-      tokenizeAuxDFA c F (render renderTok sep ts).toList pos [m] acc
-        = tokenizeAuxDFA c F ([] : List Char) pos [m] (ts.reverse ++ acc)
-  | [], acc => by simp [render]
-  | t :: ts, acc => by
-      rw [render_cons, hpeel t ts acc, tokenize_render_fold c m F pos hpeel ts (t :: acc)]
-      simp
+/-- Universal roundtrip for the validated flat string tokenizer used by generated
+    `tokenizeBare` definitions. The generated module supplies the finite table
+    premises and the separator check; `RoundtrippableTok` carries the per-token
+    renderer/action facts. -/
+theorem tokenizeFlatStr_render (cf : CompiledFlat Tok) (eof : Tok)
+    (renderTok : Tok → String) (sepCh : Char)
+    (hval : flatValidate (cf.flats.getD cf.base.start default)
+      (cf.base.dfas.getD cf.base.start default) = true)
+    (hstartm : 0 < (cf.base.dfas.getD cf.base.start default).states.size)
+    (hstay : ∀ (s : String) (rule : Nat),
+      (((cf.base.acts.getD cf.base.start #[]).getD rule (fun _ => {})) s).trans = Trans.stay)
+    (htext : ∀ (rule : Nat), cf.needsText cf.base.start rule = false →
+      ∀ (s : String), ((cf.base.acts.getD cf.base.start #[]).getD rule (fun _ => {})) s
+        = ((cf.base.acts.getD cf.base.start #[]).getD rule (fun _ => {})) "")
+    (heof : cf.base.eofToken = some eof)
+    (hsep : SeparatorOk cf.base sepCh) :
+    ∀ (ts : List Tok), Forall (RoundtrippableTok cf.base renderTok sepCh) ts →
+      tokenizeFlatStr cf (render renderTok (String.singleton sepCh) ts) =
+        .ok (ts ++ [eof]) := by
+  intro ts hall
+  rw [tokenizeFlatStr_eq_tokenize cf hval hstartm hstay htext]
+  apply tokenize_render_pred renderTok (String.singleton sepCh) cf.base eof
+    (RoundtrippableTok cf.base renderTok sepCh) heof
+  · intro t rest acc f pos ht hrest hfuel
+    exact hpeel_of_roundtrippable cf.base renderTok sepCh hsep t rest acc f pos
+      ht hrest hfuel
+  · exact hall
 
 end Lexer
-
-
-

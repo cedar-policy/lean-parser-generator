@@ -263,13 +263,13 @@ Names, binders, type strings, and action strings in the view are for reading onl
 
 ## Roundtrip proofs (experimental)
 
-These experimental options generate additional modules checking that the lexer and the parser are inverses of a printer, i.e. roundtrip through printing and parsing is idempotent. This is a different property from the theorems in [Proven parser properties](#proven-parser-properties). None of them is needed to use the parser.
+These options generate extra modules for printer inverses. They are experimental and are not needed to use the parser.
 
-- `%option roundtrip_lexer` adds `<Base>LexerRoundtrip.lean`. For every token constructor with a fixed spelling, it proves that lexing the spelling gives back the token. For a token that carries a value, it looks for a lexeme the whole lexer maps to that constructor. When it finds none, the module says so in a comment, and the token has no coverage theorem. The statement is about the tokens the lexer can produce, not about all values of the token type: `IDENTIFIER "if"` is a well-typed token that no input lexes to, if `"if"` is folded to a keyword. [`docs/LEXER.md`](docs/LEXER.md) has the details.
-- `%option roundtrip_parser <unparse>` adds `<Base>ParserRoundtrip.lean`. You supply `<unparse> : StartTy → List Tok`. The module proves that `parse (unparse t) = some t`. The proof covers only the ASTs you list in a `corpus` in your `<Base>Unparse` module, not every AST. `#eval guarantees` prints what was proved for that corpus. See DESIGN §16.5.
-- `%option roundtrip_format <renderTok>` takes a complete token renderer and adds two more theorems over the same corpus: formatting the token stream with whitespace and lexing it again gives the same tokens, and the composition of the two roundtrips (AST to source text and back to the AST).
+- `%option roundtrip_lexer` generates `<Base>LexerRoundtrip.lean`. A handwritten `<Base>LexerRoundtripSupport.lean` supplies `renderTok : Tok → String`. The generated `render_roundtrip` theorem is universal over arbitrary lists whose elements satisfy the decidable `RoundtrippableTok` predicate. The predicate checks that the rendered lexeme wins maximal munch, emits the same token, and is separated by a skipped space. The current generator accepts only single-mode lexers whose actions all stay in that mode. See [`docs/LEXER.md`](docs/LEXER.md).
+- `%option roundtrip_parser <unparse>` generates `<Base>ParserRoundtrip.lean`, where `<unparse> : StartTy → List Tok`. The module defines `parseRoundtrip`; it does not generate corpus theorems or claim that a partial unparser is universal.
+- `%option roundtrip_format <renderTok>` adds the corpus-independent `format`, `relex`, and `fullRoundtrip` definitions to the parser roundtrip module. A handwritten theorem can combine the universal lexer result with a parser inverse theorem.
 
-These modules are generated next to the others, and `lake build` checks them like any other module.
+The generated modules contain no sample corpus, coverage summary, `guarantees` string, or `#eval` output.
 
 ## The trust boundary
 

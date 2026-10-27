@@ -171,13 +171,19 @@ lean_lib «VerifiedSmoke» where
   srcDir := "test"
   roots := #[`calc.CalcAst, `calc.CalcVerified, `calc.CompletenessValidatorTest,
     `calc.RefinementTest, `calc.GrammarViewTest,
-    `calc.CalcLexer, `calc.CalcLexerRoundtrip,
-    `cedar.CedarAst, `cedar.CedarLexer, `cedar.CedarLexerRoundtrip,
-    `cedar.CedarParser, `cedar.CedarUnparse, `cedar.CedarParserRoundtrip, `cedar.ParserRoundtripTest,
-    `cedarschema.CedarSchemaAst, `cedarschema.CedarSchemaLexer, `cedarschema.CedarSchemaLexerRoundtrip,
+    `calc.CalcLexer, `calc.CalcLexerRoundtripSupport, `calc.CalcLexerRoundtrip,
+    `cedar.CedarAst, `cedar.CedarLexer, `cedar.CedarLexerRoundtripSupport,
+    `cedar.CedarLexerRoundtrip,
+    `cedar.CedarParser, `cedar.CedarUnparse, `cedar.CedarParserRoundtrip,
+    `cedarschema.CedarSchemaAst, `cedarschema.CedarSchemaLexer,
+    `cedarschema.CedarSchemaLexerRoundtripSupport, `cedarschema.CedarSchemaLexerRoundtrip,
     `cedarschema.CedarSchemaParser, `cedarschema.CedarSchemaUnparse,
-    `cedarschema.CedarSchemaParserRoundtrip, `cedarschema.ParserRoundtripTest,
-    `cedarentities.CedarEntitiesAst, `cedarentities.CedarEntitiesLexer, `cedarentities.CedarEntitiesLexerRoundtrip,
+    `cedarschema.CedarSchemaParserRoundtrip,
+    `cedarentities.CedarEntitiesAst, `cedarentities.CedarEntitiesLexer,
+    `cedarentities.CedarEntitiesLexerRoundtripSupport,
+    `cedarentities.CedarEntitiesLexerRoundtrip,
+    `spanuse.SpanUseLexer, `spanuse.SpanUseLexerRoundtripSupport,
+    `spanuse.SpanUseLexerRoundtrip,
   ]
   needs := #[parsers]
 

@@ -1715,8 +1715,12 @@ Generated-code visibility is deliberate, not uniform:
   …) *are* the public API that downstream proofs reference, and the validation/refinement
   proofs unfold them throughout. Exposing it is the right choice, not a fallback.
 
-- **Roundtrip** (`Emit/CodegenLexer.lean`): `@[expose] public section`; the `native_decide`
-  fixed points reduce `renderTok`/`tokenize`.
+- **Lexer roundtrip** (`Emit/CodegenLexerRoundtrip.lean`): `@[expose] public section`.
+  The module uses `import all FooLexer` because its private bridge lemmas unfold the
+  generated action arrays. It publicly imports the handwritten
+  `FooLexerRoundtripSupport` renderer and exports only the renderer predicate,
+  `render`, and the universal `render_roundtrip` theorem; table-specific lemmas are
+  private.
 
 User `%header`/`%lexerheader` text is copied into generated modules, so `Emit.Builder.publicizeImports`
 rewrites any bare `import X` in it to `public import X` (an unqualified `import` is rejected inside a
@@ -1729,120 +1733,66 @@ their own per-`native_decide` axioms, with no `sorry` and no new custom axioms.
 We should work on providing nice error messages for when the lexer or parser fails. For the parser,
 let us take inspiration from how Menhir handles error messages. See [ERROR_MESSAGES](./ERROR_MESSAGES.md).
 
-### 16.4 Tokenizer Proofs
+### 16.4 Universal lexer roundtrip
 
-The current lexer/tokenizer is only proved sound, and this soundness result is not something that provides
-high confidence in the resulting tokenizer. It does prove its correctness according to an idealized
-executable version of the tokenizer. This is a good result, but it is too easy to write a bad lexer.
-See [LEXER](./LEXER.md).
+`%option roundtrip_lexer` emits `FooLexerRoundtrip.lean`. The handwritten
+`FooLexerRoundtripSupport.lean` module supplies `renderTok : Tok → String`; the import
+name is inferred from the lexer import. The current implementation accepts one lexer mode,
+requires every action to stay in that mode, uses one space as the separator, and checks that
+the winning space rule consumes one character and skips it. Unsupported lexers fail
+generation rather than receiving a weaker theorem.
 
-A first slice of the roundtrip (printer/lexer inverse) property is now proved, and
-it is **generated**, not hand-written. The generator emits a `FooLexerRoundtrip.lean`
-beside each `FooLexer.lean` (the `parsers` Lake target runs `--roundtrip` after the
-lexer), containing a generated `renderTok`/`render` and, for each reachable constant
-(valueless) token, the fixed point `tokenize (renderTok t ++ " ") = .ok [t, EOF]`,
-discharged by `native_decide` at the lexer's usual axiom budget. `renderTok` is
-inferred from each valueless token's rule: `Emit/CodegenLexer.lean`'s `regexLiteral?`
-reads the literal string a rule matches (a `cat` chain of single-character classes),
-so `%token PLUS` printing `"+"` is derived from the `"+"` rule, not written by hand.
-Value-carrying tokens (Cedar `IDENTIFIER`, `NUMBER`, …) are out of scope — they need
-the user's printer-inversion lemma (LEXER.md open question 1) — so `render` maps them
-to the empty string and no theorem is emitted for them. On the test lexers this
-generates 5 (calc), 15 (CedarSchema), and 29 (Cedar) constant-token
-roundtrip theorems.
+The generated public boundary is:
 
-The lexer-independent proof core is in `LeanParserGenerator/Lexer/Roundtrip.lean`
-(kernel checked, no `native_decide`, no `sorry`): `tokenizeAuxDFA_fuel_mono` (fuel
-monotonicity), `tokenize_render_fold` (the general list roundtrip by induction on the
-token list, from a per-token peel), and — the key fact for a *general* theorem —
-`scan_go_append`: the scan walk stops at the first dead transition, so once the walk
-over a prefix dies, the suffix is irrelevant. This is what makes the separator break
-maximal munch regardless of the rest of the input, and reduces the per-token peel to a
-finite, suffix-independent check on `renderTok t` and the separator character (which is
-why it is generatable). What remains to reach the full generated `∀ reachable T,
-tokenize (render T) = .ok (T ++ [EOF])` is the connective work wiring `scan_go_append`
-and the peel into `tokenize_render_fold`, plus the user inversion lemma for value
-tokens. See [LEXER](./LEXER.md) for the proved-versus-open breakdown.
+```lean
+abbrev RoundtrippableTok : Tok → Prop :=
+  Lexer.RoundtrippableTok FooLexer.lexer FooLexerRoundtripSupport.renderTok ' '
 
-The generated `FooLexerRoundtrip.lean` is hole-free. Its headline is the hole-free
-`render_roundtrip_all` (the list of all constant tokens prints-and-lexes back to itself,
-`native_decide`) alongside the per-constant-token fixed points and `coverage`. It also
-emits `def guarantees : String` and `#eval guarantees`, so a reader sees exactly what the
-module proves without reading the proofs. I dropped the earlier `∀ s`
-`render_roundtrip_general` theorem: it was the one place that needed a `sorry` (the
-unproved step is bridging `tokenizeBare`, the flat runtime, to the fold's
-`tokenizeAuxDFA`), and a module that always carries a `sorry` is worse than one that
-states precisely the sublanguage it proves. The library route for the general statement
-(`tokenize_render_fold` + `peel_emit`/`peel_skip` + `scan_lit_sep_indep`) is still in
-`Lexer/Roundtrip.lean` for when the bridge is done; the generated module no longer
-asserts it.
+def render (ts : List Tok) : String :=
+  Lexer.render FooLexerRoundtripSupport.renderTok " " ts
 
-### 16.5 Parser roundtrip (token-generation inverse), formatter idempotence, and the full roundtrip
+theorem render_roundtrip (ts : List Tok)
+    (h : Lexer.Forall RoundtrippableTok ts) :
+    FooLexer.tokenizeBare (render ts) = .ok (ts ++ [Tok.EOF])
+```
 
-The lexer roundtrip is a printer/lexer inverse on tokens. The parser roundtrip is the
-same idea one level up, and it is deliberately *token-level*, not string-level: the
-parser theorem begins at tokens (§1), so the clean inverse of `parse` is a token
-generator, not a printer through the lexer. The user supplies `unparse : StartTy → List
-Tok` and the module proves `parse (unparse t) = some t` for the ASTs it is asked about.
-It is opt-in via `%option roundtrip_parser <unparse>` (the function's name, in scope
-through the `<Base>Unparse` module below). The generator writes `FooParserRoundtrip.lean`
-beside the parser (the `parsers` Lake target).
+This theorem is universal over lists, not a `native_decide` check over a fixed list.
+`RoundtrippableTok t` is a decidable structural predicate. It says that `renderTok t` is
+nonempty, wins a complete start-mode scan, emits exactly `t`, stays in the mode, dies on
+the separator, and begins with a character on which the separator scan dies. It excludes
+well-typed payloads that cannot be produced again by the chosen renderer. Concrete token
+facts can be discharged with `native_decide`; general value-token facts are handwritten
+lemmas about the user's renderer and action.
 
-**Everything the module proves is hole-free; there is no `sorry`.** The guarantee is
-quantified over a `corpus` of ASTs, not over all ASTs. A universal `∀ t, parse (unparse
-t) = some t` is not provable by the generator — it would have to invert the LR
-automaton, and it is in fact *false* for a partial `unparse` (the CST has forms the
-example `unparse` does not cover) — so stating it as `by sorry` would be a hole that can
-never be truthfully closed. Instead the module states exactly the testable, true slice,
-the same way the lexer roundtrip is stated over reachable tokens. The module contains:
+The generic proof is in `Lexer/Roundtrip.lean`. `scan_lit_sep_indep` makes token scans
+independent of the suffix. `peel_emit` emits one token and `peel_skip` consumes its
+separator. `hpeel_of_roundtrippable` combines them, including the EOF suffix case.
+`tokenize_render_fold_pred` performs a position-aware induction and tracks enough fuel for
+both steps. `tokenizeFlatStr_render` then uses `tokenizeFlatStr_eq_tokenize` to transfer the
+result to the flat string runtime used by `tokenizeBare`.
 
-- `parseRoundtrip (t) := FooParser.parse ((unparse t).map Positioned.dummy) 30`;
-- `abbrev corpus : List StartTy := <Base>Unparse.corpus` — the corpus lives in the
-  user's module (next point), so regeneration never overwrites it;
-- the hole-free `roundtrip_corpus : corpus.all (fun t => parseRoundtrip t == some t) =
-  true := by native_decide` (stated with `BEq`/`= true` because the generated ASTs derive
-  `BEq`, not `DecidableEq`);
-- `def guarantees : String` and `#eval guarantees`, which print exactly what was proven,
-  so the guarantee is visible without reading the proofs.
+The generated module proves the flat-runtime premises with private finite proofs over the
+emitted action table. It contains no per-token examples, reachability witnesses, constructor
+coverage claim, fixed token list, `guarantees` string, or `#eval`.
 
-**Specification is one list.** `corpus` lives in the user's `<Base>Unparse` module
-(`CedarUnparse.corpus`, `CedarSchemaUnparse.corpus`); adding an AST there — and nothing
-else — extends every roundtrip theorem to cover it, and regeneration keeps it. The
-`<Base>Unparse` module is also where `unparse` and `renderTok` live, because they
-reference `Tok`, which the shared `%header` cannot (the header is spliced into the lexer
-module *before* `Tok` is defined). It imports the generated lexer (for `Tok`) and the
-AST; the generated roundtrip module imports it (no cycle) and `open`s its namespace so
-the options may name the functions unqualified.
+### 16.5 Parser roundtrip definitions
 
-**Formatter idempotence.** A token stream is printed as source by inserting whitespace
-between tokens, and we want to know that this formatting does not change what the lexer
-recovers. `%option roundtrip_format <renderTok>` names a *complete* token renderer
-`renderTok : Tok → String` (also in `<Base>Unparse`), and the module then emits
-`format`/`relex` and the hole-free `formatter_idempotence`: for every AST in `corpus`,
-formatting its token stream with a space, a newline, or a tab all re-lex to the same
-tokens + EOF (`native_decide`). It holds because `renderTok` is complete (every token
-renders to text that re-lexes to it — keywords to their spelling, value tokens to a
-canonical form, not to `""` as the lexer-roundtrip's inferred `renderTok` does for
-non-constant tokens) and the separator is whitespace the lexer skips. The generator
-emits a warning into the module if the lexer's start mode has no `skip` rule.
+`%option roundtrip_parser <unparse>` emits `FooParserRoundtrip.lean`, where
+`unparse : StartTy → List Tok` is defined in the handwritten `FooUnparse` module. The
+generated module defines:
 
-**The full roundtrip.** With both options the module composes the two roundtrips:
-`fullRoundtrip (sep) (t) := (relex sep (unparse t)).bind (parse ∘ map dummy)` — the full
-AST → tokens → source → tokens → AST path — and the hole-free `full_roundtrip_corpus`
-proves every corpus AST survives it, for a space and a newline separator
-(`native_decide`).
+```lean
+def parseRoundtrip (t : StartTy) (fuel : Nat := 20) : Option StartTy :=
+  FooParser.parse ((unparse t).map Positioned.dummy) fuel
+```
 
-`test/cedar/ParserRoundtripTest.lean` and `test/cedarschema/ParserRoundtripTest.lean`
-confirm the corpora are non-empty (`0 < corpus.length`) and re-state the three proven
-theorems, so the guarantees are not vacuous: 7 `Policies` and 5 `Schema` CST witnesses
-(scope-only policies with annotations and a `when { true }` condition; type, entity, and
-namespace declarations with `Set<…>` and record types). All carry only the standard
-axiom budget plus their own `native_decide` axiom — no `sorryAx`.
+The generator does not claim this is a universal inverse. That claim depends on the
+handwritten `unparse`, may require a size-dependent fuel theorem, and is false for a partial
+unparser. The module therefore contains no corpus and no generated theorem. Applications
+can prove the inverse they need against `parseRoundtrip`.
 
-The restriction is the same keyword-folding one as the lexer roundtrip, one level down:
-a witness must use token constructors that re-lex to themselves. The Cedar example builds
-`IDENTIFIER` tokens through `identTok s := if h : s ∉ keywords then .IDENTIFIER ⟨s, h⟩
-else …` — a decidable guard, no `sorry` — so a keyword string does not masquerade as an
-identifier. Both options are wired through both `.lig` frontends (`parseLig` and the
-bootstrap `parseLigGen`, which agree on the fixtures), the inferred CLI form, and an
-explicit `--roundtrip-parser` mode.
+When `%option roundtrip_format <renderTok>` is also present, the module adds the
+corpus-independent `format`, `relex`, and `fullRoundtrip` definitions. These compose the
+user's token renderer, generated lexer, and parser. A handwritten theorem can combine
+`FooLexerRoundtrip.render_roundtrip` with a parser inverse theorem and a proof that
+`unparse` emits only `RoundtrippableTok` values.
