@@ -25,12 +25,12 @@ only emitted when the user asks for it (`%option roundtrip_parser <unparse>` / t
 `--roundtrip-parser` CLI mode / the `parsers` Lake target's roundtrip step). The
 opt-in generation lives in its own file so that boundary is explicit.
 
-The parser roundtrip is a *token-generation* inverse: the user supplies
-`unparse : StartTy → List Tok` (the inverse of what `parse` consumes). The generated
-module defines `parseRoundtrip t = parse (unparse t)` — generate the token list of an
-AST, then parse it back. It is token-level and does not involve the lexer — it is the
-half of the AST↔source story the parser owns (DESIGN §1: the parser theorem begins at
-tokens).
+The parser roundtrip is a token-generation inverse. The user supplies
+`unparse : StartTy → List Tok`; the generated module defines `parseRoundtrip`, appending
+the explicit EOF used by the augmented grammar. It also defines a `Certificate`
+containing a start parse tree and its semantic equality. `parse_certificate` applies
+the existing generated `parser_complete` theorem at fuel computed from the tree size.
+A handwritten proof constructs certificates for every value in its printable domain.
 
 When the user also names a token renderer `renderTok : Tok → String`
 (`%option roundtrip_format`), the module additionally defines `format`, `relex`, and
@@ -38,11 +38,10 @@ When the user also names a token renderer `renderTok : Tok → String`
 renders a token list with whitespace, `relex` re-lexes it, and `fullRoundtrip` runs
 the whole AST→tokens→source→tokens→AST path.
 
-The module emits only these corpus-independent definitions. It states no theorems and
-no corpus: a future universal theorem — `parse (unparse t) = some t` for all `t`,
-which would have to invert the LR automaton — can be proven against `parseRoundtrip`
-directly, and tests can quantify over whatever ASTs they choose. See docs/DESIGN.md
-§16.5. -/
+The module emits no corpus or finite sample checks. The certificate theorem is
+universal over token lists and semantic values; whether a particular handwritten
+unparser has certificates for all values is stated separately and checked by Lean.
+See docs/DESIGN.md §16.5. -/
 public import LeanParserGenerator.Frontend.File
 public import LeanParserGenerator.Emit.Builder
 
@@ -60,13 +59,12 @@ def startResultType (surface : Surface) : Option String :=
   (surface.rules.find? (fun r => r.lhs == surface.start)).map (·.ty)
 
 /-- Generate `FooParserRoundtrip.lean`. Needs a token-generator named by
-    `%option roundtrip_parser`. With `%option roundtrip_format` and a `%lexer` block
-    it also emits the `format`/`relex`/`fullRoundtrip` definitions. `unparseImport` is
-    the dotted module path that defines `unparse` (and `renderTok` for the formatter):
-    a dedicated module importing the lexer (for `Tok`) and the AST, since those
-    functions reference `Tok`, which the shared `%header` cannot (the lexer defines
-    `Tok` after the header is spliced). Its last dotted component is `open`ed so the
-    option may name the functions unqualified. -/
+    `%option roundtrip_parser`; this works with generated and handwritten lexers.
+    The paired `FooVerified` module supplies `parser_complete` and start parse trees.
+    With `%option roundtrip_format` and a generated `%lexer` block it also emits the
+    `format`/`relex`/`fullRoundtrip` definitions. `unparseImport` is the dotted module
+    path that defines `unparse` (and `renderTok` for the formatter). Its last dotted
+    component is `open`ed so the options may name the functions unqualified. -/
 def generateParserRoundtripFrom (surface : Surface)
     (lexerImport lexerName parserImport parserName unparseImport roundtripModule : String) :
     Except String String := do
@@ -76,6 +74,11 @@ def generateParserRoundtripFrom (surface : Surface)
     | .error s!"the start nonterminal `{surface.start}` has no rule, so its result type \
 is unknown"
   let tokTy := surface.tokenType
+  let verifiedName := if parserName.endsWith "Parser" then
+    (parserName.dropEnd "Parser".length).toString ++ "Verified"
+  else parserName ++ "Verified"
+  let verifiedPrefix := (parserImport.dropEnd parserName.length).toString
+  let verifiedImport := verifiedPrefix ++ verifiedName
   let unparseNamespace := (unparseImport.splitOn ".").getLastD unparseImport
   let formatName := surface.options.roundtripFormat
   let hasFormat := formatName.isSome && surface.lexer.isSome
@@ -85,28 +88,59 @@ is unknown"
     s!"--\n" ++
     s!"-- Corpus-independent roundtrip definitions. The user supplies\n" ++
     s!"--   {unparse} : {startTy} → List {tokTy}\n" ++
-    s!"-- (the inverse of what `parse` consumes). `parseRoundtrip t = parse (unparse t)`\n" ++
+    s!"-- (the candidate token printer). `parseRoundtrip` parses its output plus EOF.\n" ++
     (if hasFormat then
       s!"-- and, with the named token renderer, `format`/`relex`/`fullRoundtrip` run the\n" ++
       s!"-- whole AST→tokens→source→tokens→AST path.\n"
      else "") ++
-    s!"-- The module states no theorems and no corpus: a future universal theorem\n" ++
-    s!"-- (`parse (unparse t) = some t` for all `t`) can be proven against\n" ++
-    s!"-- `parseRoundtrip` directly, and tests may quantify over any ASTs they choose.\n" ++
-    s!"public import {lexerImport}\n" ++
+    s!"-- The module defines a generic parse-tree certificate and proves that every\n" ++
+    s!"-- certified token list parses to its certified semantic value. A user proof\n" ++
+    s!"-- supplies certificates for the chosen printable domain.\n" ++
+    (if surface.lexer.isSome then s!"public import {lexerImport}\n" else "") ++
     s!"public import {parserImport}\n" ++
+    s!"public import {verifiedImport}\n" ++
     s!"public import {unparseImport}\n" ++
+    s!"public import LeanParserGenerator.Runtime.Span\n" ++
     (if surface.header.isEmpty then "" else Builder.publicizeImports surface.header ++ "\n") ++ "\n" ++
     s!"@[expose] public section\n\n" ++
     s!"namespace {roundtripModule}\n\n" ++
-    s!"open Lexer Runtime {unparseNamespace}\n\n"
+    (if surface.lexer.isSome then s!"open Lexer Runtime {unparseNamespace}\n\n"
+     else s!"open Runtime {unparseNamespace}\n\n")
   let parserPart :=
-    s!"/-- Generate the token list of an AST with the user's `unparse`, then parse it\n" ++
-    s!"    back. A future universal theorem asks this to return `some t` on every AST\n" ++
-    s!"    `t`. The tokens carry dummy spans (`parse` consumes `Positioned {tokTy}`).\n" ++
-    s!"    `fuel` is the parser's logarithmic step bound (default matches `parse`). -/\n" ++
+    s!"/-- A parse tree certifying that `tokens` parse to `value`. The start tree\n" ++
+    s!"    includes the explicit EOF required by the augmented grammar. -/\n" ++
+    s!"structure Certificate (tokens : List {tokTy}) (value : {startTy}) where\n" ++
+    s!"  tree : {verifiedName}.ParserStartTree (tokens ++ [{tokTy}.{surface.eof}])\n" ++
+    s!"  semantics : Runtime.Grammar.ptSem tree = value\n\n" ++
+    s!"/-- Sufficient logarithmic fuel computed from the certified tree. -/\n" ++
+    "def Certificate.logFuel {tokens : List " ++ tokTy ++ "} {value : " ++ startTy ++ "}\n" ++
+    s!"    (certificate : Certificate tokens value) : Nat :=\n" ++
+    s!"  Nat.log2 (Runtime.Grammar.ptSize certificate.tree) + 1\n\n" ++
+    s!"theorem Certificate.size_le_two_pow_logFuel\n" ++
+    "    {tokens : List " ++ tokTy ++ "} {value : " ++ startTy ++ "}\n" ++
+    s!"    (certificate : Certificate tokens value) :\n" ++
+    s!"    Runtime.Grammar.ptSize certificate.tree ≤ 2 ^ certificate.logFuel := by\n" ++
+    s!"  apply Nat.le_of_lt\n" ++
+    s!"  exact Nat.lt_log2_self\n\n" ++
+    s!"/-- Every certified token list is accepted by the executable parser with\n" ++
+    s!"    the certified semantic value. -/\n" ++
+    "theorem parse_certificate {tokens : List " ++ tokTy ++ "} {value : " ++ startTy ++ "}\n" ++
+    s!"    (certificate : Certificate tokens value) :\n" ++
+    s!"    {parserName}.parse ((tokens ++ [{tokTy}.{surface.eof}]).map Positioned.dummy)\n" ++
+    s!"      certificate.logFuel = some value := by\n" ++
+    s!"  have accepted := {verifiedName}.parser_complete certificate.tree certificate.logFuel\n" ++
+    s!"    certificate.size_le_two_pow_logFuel\n" ++
+    s!"  rw [certificate.semantics] at accepted\n" ++
+    s!"  exact accepted\n\n" ++
+    s!"/-- Generate the token list of a parser result, append explicit EOF, and parse\n" ++
+    s!"    it back with the caller's logarithmic fuel. -/\n" ++
     s!"def parseRoundtrip (t : {startTy}) (fuel : Nat := 20) : Option {startTy} :=\n" ++
-    s!"  {parserName}.parse (({unparse} t).map Positioned.dummy) fuel\n\n"
+    s!"  {parserName}.parse ((({unparse} t) ++ [{tokTy}.{surface.eof}]).map Positioned.dummy) fuel\n\n" ++
+    s!"/-- A concrete certificate proves the named unparser roundtrip at its computed\n" ++
+    s!"    sufficient fuel. -/\n" ++
+    s!"theorem parse_roundtrip (t : {startTy}) (certificate : Certificate ({unparse} t) t) :\n" ++
+    s!"    parseRoundtrip t certificate.logFuel = some t :=\n" ++
+    s!"  parse_certificate certificate\n\n"
   let formatPart :=
     if !hasFormat then
       "-- No `%option roundtrip_format <renderTok>`: only the token-level\n" ++
@@ -118,7 +152,8 @@ is unknown"
       s!"`format sep` renders a token list with `{renderTok}` and a whitespace separator\n" ++
       s!"after each token. `relex` re-lexes a formatted stream. `fullRoundtrip` composes\n" ++
       s!"`format`, `relex`, and `parse` into the whole AST→source→AST path. These are\n" ++
-      s!"corpus-independent; a future universal theorem can be stated against them. -/\n\n" ++
+      s!"corpus-independent. A handwritten theorem combines them with a parser certificate\n" ++
+      s!"and the universal lexer theorem. -/\n\n" ++
       s!"/-- Format a token list: each token's rendered text followed by the separator. -/\n" ++
       s!"def format (sep : String) (ts : List {tokTy}) : String :=\n" ++
       s!"  ts.foldr (fun t acc => {renderTok} t ++ sep ++ acc) \"\"\n\n" ++

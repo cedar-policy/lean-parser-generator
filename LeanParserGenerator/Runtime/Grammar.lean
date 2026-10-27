@@ -137,6 +137,28 @@ def ptlSem : {A : Type} → {heads : List Sym} → {word : List G.Token} →
       ptlSem q (act' (ptSem t))
 end
 
+@[simp] theorem ptSem_terminal (tok : G.Token) :
+    ptSem (ParseTree.terminal tok) = G.tokenSem tok := by
+  rw [ptSem.eq_def]
+
+@[simp] theorem ptSem_nonTerminal (p : G.Production) {word : List G.Token}
+    (ptl : ParseTreeList (G.prodRhsRev p) word) :
+    ptSem (ParseTree.nonTerminal p ptl) = ptlSem ptl (G.prodAction p) := by
+  rw [ptSem.eq_def]
+
+@[simp] theorem ptlSem_nil {A : Type}
+    (action : arrowsRight A ([].map G.semT)) :
+    ptlSem (G := G) ParseTreeList.nil action = action := by
+  rw [ptlSem.eq_def]
+
+@[simp] theorem ptlSem_cons {A : Type} {headSymsQ : List G.Sym}
+    {wordQ : List G.Token} (q : ParseTreeList headSymsQ wordQ)
+    {headSymT : G.Sym} {wordT : List G.Token} (tree : ParseTree headSymT wordT)
+    (action : arrowsRight A ((headSymT :: headSymsQ).map G.semT)) :
+    ptlSem (ParseTreeList.cons q tree) action =
+      ptlSem q (action (ptSem tree)) := by
+  rw [ptlSem.eq_def]
+
 mutual
 /-- The number of nodes in a parse tree; used to bound parsing fuel in the
     completeness theorem. -/

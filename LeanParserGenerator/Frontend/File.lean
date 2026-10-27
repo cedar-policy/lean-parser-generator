@@ -190,12 +190,13 @@ structure Options where
       `%option roundtrip_lexer`. Ignored without a `%lexer` block. Defaults to
       `false`. -/
   roundtripLexer : Bool := false
-  /-- When set to a token-generator function name, and the grammar has a `%lexer`
-      block, the generator also emits `<Base>ParserRoundtrip.lean`. The named
-      function has type `<StartTy> → List <Tok>` and is imported from the
-      handwritten `<Base>Unparse` module. The generated module defines
-      `parseRoundtrip`; it states no corpus theorem or universal claim about the
-      user function. `none` (the default) emits no parser roundtrip module. -/
+  /-- When set to a token-generator function name, the generator emits
+      `<Base>ParserRoundtrip.lean` and parse-tree helpers in `<Base>Verified.lean`.
+      The named `<StartTy> → List <Tok>` function comes from handwritten
+      `<Base>Unparse.lean`. The generated `parse_certificate` theorem proves any
+      supplied start-tree certificate; a separate handwritten proof constructs
+      certificates for its printable domain. Generated and handwritten lexers are
+      both supported. `none` emits no parser roundtrip module or tree helpers. -/
   roundtripParser : Option String := none
   /-- When set alongside `roundtrip_parser`, names a token renderer
       `renderTok : <Tok> → String` imported from the handwritten

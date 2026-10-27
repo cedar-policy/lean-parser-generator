@@ -4,6 +4,8 @@ open Calc
 }
 %option module_prefix calc
 %option roundtrip_lexer
+%option roundtrip_parser unparseInt
+%option roundtrip_format renderTok
 %tokentype Tok
 %token PLUS TIMES LPAR RPAR DIV
 %token <Int> NUM

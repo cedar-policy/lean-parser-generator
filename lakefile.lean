@@ -80,10 +80,12 @@ def genTargets : Array GenTarget := #[
   -- LIG
   { lig := "test/calc/calc.lig"
     outputs := #["test/calc/CalcVerified.lean", "test/calc/CalcParser.lean",
-      "test/calc/CalcLexer.lean", "test/calc/CalcLexerRoundtrip.lean"] },
+      "test/calc/CalcLexer.lean", "test/calc/CalcLexerRoundtrip.lean",
+      "test/calc/CalcParserRoundtrip.lean"] },
   -- IMP
   { lig := "test/imp/imp.lig"
-    outputs := #["test/imp/ImpVerified.lean", "test/imp/ImpParser.lean"] },
+    outputs := #["test/imp/ImpVerified.lean", "test/imp/ImpParser.lean",
+      "test/imp/ImpParserRoundtrip.lean"] },
   -- Cedar policies
   { lig := "test/cedar/cedar.lig"
     outputs := #["test/cedar/CedarVerified.lean", "test/cedar/CedarParser.lean",
@@ -169,40 +171,41 @@ lean_lib «Generated» where
 @[default_target]
 lean_lib «VerifiedSmoke» where
   srcDir := "test"
-  roots := #[`calc.CalcAst, `calc.CalcVerified, `calc.CompletenessValidatorTest,
-    `calc.RefinementTest, `calc.GrammarViewTest,
-    `calc.CalcLexer, `calc.CalcLexerRoundtripSupport, `calc.CalcLexerRoundtrip,
-    `cedar.CedarAst, `cedar.CedarLexer, `cedar.CedarLexerRoundtripSupport,
-    `cedar.CedarLexerRoundtrip,
-    `cedar.CedarParser, `cedar.CedarUnparse, `cedar.CedarParserRoundtrip,
-    `cedarschema.CedarSchemaAst, `cedarschema.CedarSchemaLexer,
-    `cedarschema.CedarSchemaLexerRoundtripSupport, `cedarschema.CedarSchemaLexerRoundtrip,
-    `cedarschema.CedarSchemaParser, `cedarschema.CedarSchemaUnparse,
-    `cedarschema.CedarSchemaParserRoundtrip,
-    `cedarentities.CedarEntitiesAst, `cedarentities.CedarEntitiesLexer,
-    `cedarentities.CedarEntitiesLexerRoundtripSupport,
-    `cedarentities.CedarEntitiesLexerRoundtrip,
-    `spanuse.SpanUseLexer, `spanuse.SpanUseLexerRoundtripSupport,
-    `spanuse.SpanUseLexerRoundtrip,
+  roots := #[
+    `calc.CalcAst, `calc.CalcLexer, `calc.CalcParser, `calc.CalcVerified,
+    `calc.CompletenessValidatorTest, `calc.RefinementTest, `calc.GrammarViewTest,
+    `calc.CalcLexerRoundtripSupport, `calc.CalcLexerRoundtrip,
+    `calc.CalcUnparse, `calc.CalcParserRoundtrip, `calc.CalcParserRoundtripProof,
   ]
   needs := #[parsers]
 
-/-- Verified modules without the C99 example. -/
+/-- Verified modules and their roundtrip proofs, without the C99 example. -/
 lean_lib «VerifiedMid» where
   srcDir := "test"
   roots := #[
     -- Calc
     `calc.CalcAst, `calc.CalcLexer, `calc.CalcParser, `calc.CalcVerified,
+    `calc.CalcLexerRoundtripSupport, `calc.CalcLexerRoundtrip,
+    `calc.CalcUnparse, `calc.CalcParserRoundtrip, `calc.CalcParserRoundtripProof,
     -- Imp
-    `imp.ImpAst, `imp.ImpParser, `imp.ImpVerified,
+    `imp.ImpAst, `imp.ImpParser, `imp.ImpVerified, `imp.ImpUnparse,
+    `imp.ImpParserRoundtrip, `imp.ImpParserRoundtripProof,
     -- Cedar
     `cedar.CedarAst, `cedar.CedarLexer, `cedar.CedarParser, `cedar.CedarVerified,
+    `cedar.CedarLexerRoundtripSupport, `cedar.CedarLexerRoundtrip,
+    `cedar.CedarUnparse, `cedar.CedarPrintable,
+    `cedar.CedarParserRoundtrip, `cedar.CedarParserRoundtripProof,
     -- Cedar schema
     `cedarschema.CedarSchemaAst, `cedarschema.CedarSchemaLexer,
     `cedarschema.CedarSchemaParser, `cedarschema.CedarSchemaVerified,
+    `cedarschema.CedarSchemaLexerRoundtripSupport,
+    `cedarschema.CedarSchemaLexerRoundtrip, `cedarschema.CedarSchemaUnparse,
+    `cedarschema.CedarSchemaParserRoundtrip,
     -- Cedar entities
     `cedarentities.CedarEntitiesAst, `cedarentities.CedarEntitiesLexer,
     `cedarentities.CedarEntitiesParser, `cedarentities.CedarEntitiesVerified,
+    `cedarentities.CedarEntitiesLexerRoundtripSupport,
+    `cedarentities.CedarEntitiesLexerRoundtrip,
   ]
   needs := #[parsers]
 

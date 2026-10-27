@@ -3,15 +3,17 @@ module
 --
 -- Corpus-independent roundtrip definitions. The user supplies
 --   unparsePolicies : Policies → List Tok
--- (the inverse of what `parse` consumes). `parseRoundtrip t = parse (unparse t)`
+-- (the candidate token printer). `parseRoundtrip` parses its output plus EOF.
 -- and, with the named token renderer, `format`/`relex`/`fullRoundtrip` run the
 -- whole AST→tokens→source→tokens→AST path.
--- The module states no theorems and no corpus: a future universal theorem
--- (`parse (unparse t) = some t` for all `t`) can be proven against
--- `parseRoundtrip` directly, and tests may quantify over any ASTs they choose.
+-- The module defines a generic parse-tree certificate and proves that every
+-- certified token list parses to its certified semantic value. A user proof
+-- supplies certificates for the chosen printable domain.
 public import cedar.CedarLexer
 public import cedar.CedarParser
+public import cedar.CedarVerified
 public import cedar.CedarUnparse
+public import LeanParserGenerator.Runtime.Span
 
 public import cedar.CedarAst
 open Cedar
@@ -23,19 +25,53 @@ namespace CedarParserRoundtrip
 
 open Lexer Runtime CedarUnparse
 
-/-- Generate the token list of an AST with the user's `unparse`, then parse it
-    back. A future universal theorem asks this to return `some t` on every AST
-    `t`. The tokens carry dummy spans (`parse` consumes `Positioned Tok`).
-    `fuel` is the parser's logarithmic step bound (default matches `parse`). -/
+/-- A parse tree certifying that `tokens` parse to `value`. The start tree
+    includes the explicit EOF required by the augmented grammar. -/
+structure Certificate (tokens : List Tok) (value : Policies) where
+  tree : CedarVerified.ParserStartTree (tokens ++ [Tok.EOF])
+  semantics : Runtime.Grammar.ptSem tree = value
+
+/-- Sufficient logarithmic fuel computed from the certified tree. -/
+def Certificate.logFuel {tokens : List Tok} {value : Policies}
+    (certificate : Certificate tokens value) : Nat :=
+  Nat.log2 (Runtime.Grammar.ptSize certificate.tree) + 1
+
+theorem Certificate.size_le_two_pow_logFuel
+    {tokens : List Tok} {value : Policies}
+    (certificate : Certificate tokens value) :
+    Runtime.Grammar.ptSize certificate.tree ≤ 2 ^ certificate.logFuel := by
+  apply Nat.le_of_lt
+  exact Nat.lt_log2_self
+
+/-- Every certified token list is accepted by the executable parser with
+    the certified semantic value. -/
+theorem parse_certificate {tokens : List Tok} {value : Policies}
+    (certificate : Certificate tokens value) :
+    CedarParser.parse ((tokens ++ [Tok.EOF]).map Positioned.dummy)
+      certificate.logFuel = some value := by
+  have accepted := CedarVerified.parser_complete certificate.tree certificate.logFuel
+    certificate.size_le_two_pow_logFuel
+  rw [certificate.semantics] at accepted
+  exact accepted
+
+/-- Generate the token list of a parser result, append explicit EOF, and parse
+    it back with the caller's logarithmic fuel. -/
 def parseRoundtrip (t : Policies) (fuel : Nat := 20) : Option Policies :=
-  CedarParser.parse ((unparsePolicies t).map Positioned.dummy) fuel
+  CedarParser.parse (((unparsePolicies t) ++ [Tok.EOF]).map Positioned.dummy) fuel
+
+/-- A concrete certificate proves the named unparser roundtrip at its computed
+    sufficient fuel. -/
+theorem parse_roundtrip (t : Policies) (certificate : Certificate (unparsePolicies t) t) :
+    parseRoundtrip t certificate.logFuel = some t :=
+  parse_certificate certificate
 
 /-! ### Formatter and the full roundtrip
 
 `format sep` renders a token list with `renderTok` and a whitespace separator
 after each token. `relex` re-lexes a formatted stream. `fullRoundtrip` composes
 `format`, `relex`, and `parse` into the whole AST→source→AST path. These are
-corpus-independent; a future universal theorem can be stated against them. -/
+corpus-independent. A handwritten theorem combines them with a parser certificate
+and the universal lexer theorem. -/
 
 /-- Format a token list: each token's rendered text followed by the separator. -/
 def format (sep : String) (ts : List Tok) : String :=

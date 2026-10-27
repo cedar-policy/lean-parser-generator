@@ -377,6 +377,636 @@ instance grammarInst : Grammar := { sigInst with
   tokenTerm := tokenTerm'
   tokenSem := tokenSem' }
 
+/-- Terminal parse tree for `SKIP` with its concrete grammar index. -/
+noncomputable def parseTreeTokenSKIP :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨0, of_decide_eq_true rfl⟩ : Terminal)) [Tok.SKIP] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.SKIP))
+
+/-- Terminal parse tree for `IF` with its concrete grammar index. -/
+noncomputable def parseTreeTokenIF :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨1, of_decide_eq_true rfl⟩ : Terminal)) [Tok.IF] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.IF))
+
+/-- Terminal parse tree for `THEN` with its concrete grammar index. -/
+noncomputable def parseTreeTokenTHEN :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨2, of_decide_eq_true rfl⟩ : Terminal)) [Tok.THEN] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.THEN))
+
+/-- Terminal parse tree for `ELSE` with its concrete grammar index. -/
+noncomputable def parseTreeTokenELSE :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨3, of_decide_eq_true rfl⟩ : Terminal)) [Tok.ELSE] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.ELSE))
+
+/-- Terminal parse tree for `WHILE` with its concrete grammar index. -/
+noncomputable def parseTreeTokenWHILE :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨4, of_decide_eq_true rfl⟩ : Terminal)) [Tok.WHILE] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.WHILE))
+
+/-- Terminal parse tree for `DO` with its concrete grammar index. -/
+noncomputable def parseTreeTokenDO :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨5, of_decide_eq_true rfl⟩ : Terminal)) [Tok.DO] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.DO))
+
+/-- Terminal parse tree for `TRUE` with its concrete grammar index. -/
+noncomputable def parseTreeTokenTRUE :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨6, of_decide_eq_true rfl⟩ : Terminal)) [Tok.TRUE] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.TRUE))
+
+/-- Terminal parse tree for `FALSE` with its concrete grammar index. -/
+noncomputable def parseTreeTokenFALSE :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨7, of_decide_eq_true rfl⟩ : Terminal)) [Tok.FALSE] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.FALSE))
+
+/-- Terminal parse tree for `NOT` with its concrete grammar index. -/
+noncomputable def parseTreeTokenNOT :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨8, of_decide_eq_true rfl⟩ : Terminal)) [Tok.NOT] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.NOT))
+
+/-- Terminal parse tree for `AND` with its concrete grammar index. -/
+noncomputable def parseTreeTokenAND :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨9, of_decide_eq_true rfl⟩ : Terminal)) [Tok.AND] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.AND))
+
+/-- Terminal parse tree for `ASSIGN` with its concrete grammar index. -/
+noncomputable def parseTreeTokenASSIGN :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨10, of_decide_eq_true rfl⟩ : Terminal)) [Tok.ASSIGN] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.ASSIGN))
+
+/-- Terminal parse tree for `SEMI` with its concrete grammar index. -/
+noncomputable def parseTreeTokenSEMI :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨11, of_decide_eq_true rfl⟩ : Terminal)) [Tok.SEMI] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.SEMI))
+
+/-- Terminal parse tree for `LPAR` with its concrete grammar index. -/
+noncomputable def parseTreeTokenLPAR :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨12, of_decide_eq_true rfl⟩ : Terminal)) [Tok.LPAR] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.LPAR))
+
+/-- Terminal parse tree for `RPAR` with its concrete grammar index. -/
+noncomputable def parseTreeTokenRPAR :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨13, of_decide_eq_true rfl⟩ : Terminal)) [Tok.RPAR] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.RPAR))
+
+/-- Terminal parse tree for `PLUS` with its concrete grammar index. -/
+noncomputable def parseTreeTokenPLUS :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨14, of_decide_eq_true rfl⟩ : Terminal)) [Tok.PLUS] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.PLUS))
+
+/-- Terminal parse tree for `MINUS` with its concrete grammar index. -/
+noncomputable def parseTreeTokenMINUS :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨15, of_decide_eq_true rfl⟩ : Terminal)) [Tok.MINUS] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.MINUS))
+
+/-- Terminal parse tree for `TIMES` with its concrete grammar index. -/
+noncomputable def parseTreeTokenTIMES :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨16, of_decide_eq_true rfl⟩ : Terminal)) [Tok.TIMES] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.TIMES))
+
+/-- Terminal parse tree for `LE` with its concrete grammar index. -/
+noncomputable def parseTreeTokenLE :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨17, of_decide_eq_true rfl⟩ : Terminal)) [Tok.LE] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.LE))
+
+/-- Terminal parse tree for `EQ` with its concrete grammar index. -/
+noncomputable def parseTreeTokenEQ :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨18, of_decide_eq_true rfl⟩ : Terminal)) [Tok.EQ] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.EQ))
+
+/-- Terminal parse tree for `ID` with its concrete grammar index. -/
+noncomputable def parseTreeTokenID
+    (value : String) :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨19, of_decide_eq_true rfl⟩ : Terminal)) [Tok.ID value] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.ID value))
+
+/-- Terminal parse tree for `NUM` with its concrete grammar index. -/
+noncomputable def parseTreeTokenNUM
+    (value : Int) :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨20, of_decide_eq_true rfl⟩ : Terminal)) [Tok.NUM value] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.NUM value))
+
+/-- Terminal parse tree for `EOF` with its concrete grammar index. -/
+noncomputable def parseTreeTokenEOF :
+    Grammar.ParseTree (G := grammarInst)
+      (.T (⟨22, of_decide_eq_true rfl⟩ : Terminal)) [Tok.EOF] :=
+  Runtime.castPT (G := grammarInst) (by with_unfolding_all rfl)
+    (.terminal (G := grammarInst) (Tok.EOF))
+
+/-- Parse-tree constructor for production 0, in source RHS order. -/
+noncomputable def parseTreeProduction0
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨1, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0 ++ [Tok.SEMI] ++ word2) :=
+  .nonTerminal (G := grammarInst) (⟨0, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) (tree0)) ((parseTreeTokenSEMI))) (tree2))
+
+@[simp] theorem parseTreeProduction0_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨1, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ptSem (parseTreeProduction0 tree0 tree2) = semanticAction0 (Grammar.ptSem tree2) (()) (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction0
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 1, in source RHS order. -/
+noncomputable def parseTreeProduction1
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨1, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0) :=
+  .nonTerminal (G := grammarInst) (⟨1, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) (tree0))
+
+@[simp] theorem parseTreeProduction1_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨1, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ptSem (parseTreeProduction1 tree0) = semanticAction1 (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction1
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 2, in source RHS order. -/
+noncomputable def parseTreeProduction2 :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨1, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.SKIP]) :=
+  .nonTerminal (G := grammarInst) (⟨2, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) ((parseTreeTokenSKIP)))
+
+@[simp] theorem parseTreeProduction2_sem :
+    Grammar.ptSem (parseTreeProduction2) = semanticAction2 (()) := by
+  unfold parseTreeProduction2
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 3, in source RHS order. -/
+noncomputable def parseTreeProduction3
+    (value0 : String)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨1, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.ID value0] ++ [Tok.ASSIGN] ++ word2) :=
+  .nonTerminal (G := grammarInst) (⟨3, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) ((parseTreeTokenID value0))) ((parseTreeTokenASSIGN))) (tree2))
+
+@[simp] theorem parseTreeProduction3_sem
+    (value0 : String)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ptSem (parseTreeProduction3 value0 tree2) = semanticAction3 (Grammar.ptSem tree2) (()) (value0) := by
+  unfold parseTreeProduction3
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 4, in source RHS order. -/
+noncomputable def parseTreeProduction4
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal)) word1)
+    {word4 : List Tok}
+    (tree4 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word4)
+    {word8 : List Tok}
+    (tree8 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word8) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨1, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.IF] ++ word1 ++ [Tok.THEN] ++ [Tok.LPAR] ++ word4 ++ [Tok.RPAR] ++ [Tok.ELSE] ++ [Tok.LPAR] ++ word8 ++ [Tok.RPAR]) :=
+  .nonTerminal (G := grammarInst) (⟨4, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.cons (.cons (.cons (.cons (.cons (.cons (.cons (.nil) ((parseTreeTokenIF))) (tree1)) ((parseTreeTokenTHEN))) ((parseTreeTokenLPAR))) (tree4)) ((parseTreeTokenRPAR))) ((parseTreeTokenELSE))) ((parseTreeTokenLPAR))) (tree8)) ((parseTreeTokenRPAR)))
+
+@[simp] theorem parseTreeProduction4_sem
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal)) word1)
+    {word4 : List Tok}
+    (tree4 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word4)
+    {word8 : List Tok}
+    (tree8 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word8) :
+    Grammar.ptSem (parseTreeProduction4 tree1 tree4 tree8) = semanticAction4 (()) (Grammar.ptSem tree8) (()) (()) (()) (Grammar.ptSem tree4) (()) (()) (Grammar.ptSem tree1) (()) := by
+  unfold parseTreeProduction4
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 5, in source RHS order. -/
+noncomputable def parseTreeProduction5
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal)) word1)
+    {word4 : List Tok}
+    (tree4 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word4) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨1, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.WHILE] ++ word1 ++ [Tok.DO] ++ [Tok.LPAR] ++ word4 ++ [Tok.RPAR]) :=
+  .nonTerminal (G := grammarInst) (⟨5, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.cons (.cons (.cons (.nil) ((parseTreeTokenWHILE))) (tree1)) ((parseTreeTokenDO))) ((parseTreeTokenLPAR))) (tree4)) ((parseTreeTokenRPAR)))
+
+@[simp] theorem parseTreeProduction5_sem
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal)) word1)
+    {word4 : List Tok}
+    (tree4 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word4) :
+    Grammar.ptSem (parseTreeProduction5 tree1 tree4) = semanticAction5 (()) (Grammar.ptSem tree4) (()) (()) (Grammar.ptSem tree1) (()) := by
+  unfold parseTreeProduction5
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 6, in source RHS order. -/
+noncomputable def parseTreeProduction6
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0 ++ [Tok.AND] ++ word2) :=
+  .nonTerminal (G := grammarInst) (⟨6, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) (tree0)) ((parseTreeTokenAND))) (tree2))
+
+@[simp] theorem parseTreeProduction6_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ptSem (parseTreeProduction6 tree0 tree2) = semanticAction6 (Grammar.ptSem tree2) (()) (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction6
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 7, in source RHS order. -/
+noncomputable def parseTreeProduction7
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0) :=
+  .nonTerminal (G := grammarInst) (⟨7, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) (tree0))
+
+@[simp] theorem parseTreeProduction7_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ptSem (parseTreeProduction7 tree0) = semanticAction7 (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction7
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 8, in source RHS order. -/
+noncomputable def parseTreeProduction8 :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.TRUE]) :=
+  .nonTerminal (G := grammarInst) (⟨8, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) ((parseTreeTokenTRUE)))
+
+@[simp] theorem parseTreeProduction8_sem :
+    Grammar.ptSem (parseTreeProduction8) = semanticAction8 (()) := by
+  unfold parseTreeProduction8
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 9, in source RHS order. -/
+noncomputable def parseTreeProduction9 :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.FALSE]) :=
+  .nonTerminal (G := grammarInst) (⟨9, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) ((parseTreeTokenFALSE)))
+
+@[simp] theorem parseTreeProduction9_sem :
+    Grammar.ptSem (parseTreeProduction9) = semanticAction9 (()) := by
+  unfold parseTreeProduction9
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 10, in source RHS order. -/
+noncomputable def parseTreeProduction10
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal)) word1) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.NOT] ++ word1) :=
+  .nonTerminal (G := grammarInst) (⟨10, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.nil) ((parseTreeTokenNOT))) (tree1))
+
+@[simp] theorem parseTreeProduction10_sem
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal)) word1) :
+    Grammar.ptSem (parseTreeProduction10 tree1) = semanticAction10 (Grammar.ptSem tree1) (()) := by
+  unfold parseTreeProduction10
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 11, in source RHS order. -/
+noncomputable def parseTreeProduction11
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0 ++ [Tok.LE] ++ word2) :=
+  .nonTerminal (G := grammarInst) (⟨11, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) (tree0)) ((parseTreeTokenLE))) (tree2))
+
+@[simp] theorem parseTreeProduction11_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ptSem (parseTreeProduction11 tree0 tree2) = semanticAction11 (Grammar.ptSem tree2) (()) (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction11
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 12, in source RHS order. -/
+noncomputable def parseTreeProduction12
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0 ++ [Tok.EQ] ++ word2) :=
+  .nonTerminal (G := grammarInst) (⟨12, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) (tree0)) ((parseTreeTokenEQ))) (tree2))
+
+@[simp] theorem parseTreeProduction12_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ptSem (parseTreeProduction12 tree0 tree2) = semanticAction12 (Grammar.ptSem tree2) (()) (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction12
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 13, in source RHS order. -/
+noncomputable def parseTreeProduction13
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal)) word1) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨3, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.LPAR] ++ word1 ++ [Tok.RPAR]) :=
+  .nonTerminal (G := grammarInst) (⟨13, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) ((parseTreeTokenLPAR))) (tree1)) ((parseTreeTokenRPAR)))
+
+@[simp] theorem parseTreeProduction13_sem
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨2, of_decide_eq_true rfl⟩ : NonTerminal)) word1) :
+    Grammar.ptSem (parseTreeProduction13 tree1) = semanticAction13 (()) (Grammar.ptSem tree1) (()) := by
+  unfold parseTreeProduction13
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 14, in source RHS order. -/
+noncomputable def parseTreeProduction14
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0 ++ [Tok.PLUS] ++ word2) :=
+  .nonTerminal (G := grammarInst) (⟨14, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) (tree0)) ((parseTreeTokenPLUS))) (tree2))
+
+@[simp] theorem parseTreeProduction14_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ptSem (parseTreeProduction14 tree0 tree2) = semanticAction14 (Grammar.ptSem tree2) (()) (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction14
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 15, in source RHS order. -/
+noncomputable def parseTreeProduction15
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0 ++ [Tok.MINUS] ++ word2) :=
+  .nonTerminal (G := grammarInst) (⟨15, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) (tree0)) ((parseTreeTokenMINUS))) (tree2))
+
+@[simp] theorem parseTreeProduction15_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ptSem (parseTreeProduction15 tree0 tree2) = semanticAction15 (Grammar.ptSem tree2) (()) (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction15
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 16, in source RHS order. -/
+noncomputable def parseTreeProduction16
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0) :=
+  .nonTerminal (G := grammarInst) (⟨16, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) (tree0))
+
+@[simp] theorem parseTreeProduction16_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ptSem (parseTreeProduction16 tree0) = semanticAction16 (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction16
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 17, in source RHS order. -/
+noncomputable def parseTreeProduction17
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨6, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0 ++ [Tok.TIMES] ++ word2) :=
+  .nonTerminal (G := grammarInst) (⟨17, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) (tree0)) ((parseTreeTokenTIMES))) (tree2))
+
+@[simp] theorem parseTreeProduction17_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal)) word0)
+    {word2 : List Tok}
+    (tree2 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨6, of_decide_eq_true rfl⟩ : NonTerminal)) word2) :
+    Grammar.ptSem (parseTreeProduction17 tree0 tree2) = semanticAction17 (Grammar.ptSem tree2) (()) (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction17
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 18, in source RHS order. -/
+noncomputable def parseTreeProduction18
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨6, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨5, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0) :=
+  .nonTerminal (G := grammarInst) (⟨18, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) (tree0))
+
+@[simp] theorem parseTreeProduction18_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨6, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ptSem (parseTreeProduction18 tree0) = semanticAction18 (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction18
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 19, in source RHS order. -/
+noncomputable def parseTreeProduction19
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word1) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨6, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.LPAR] ++ word1 ++ [Tok.RPAR]) :=
+  .nonTerminal (G := grammarInst) (⟨19, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.cons (.nil) ((parseTreeTokenLPAR))) (tree1)) ((parseTreeTokenRPAR)))
+
+@[simp] theorem parseTreeProduction19_sem
+    {word1 : List Tok}
+    (tree1 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨4, of_decide_eq_true rfl⟩ : NonTerminal)) word1) :
+    Grammar.ptSem (parseTreeProduction19 tree1) = semanticAction19 (()) (Grammar.ptSem tree1) (()) := by
+  unfold parseTreeProduction19
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 20, in source RHS order. -/
+noncomputable def parseTreeProduction20
+    (value0 : String) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨6, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.ID value0]) :=
+  .nonTerminal (G := grammarInst) (⟨20, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) ((parseTreeTokenID value0)))
+
+@[simp] theorem parseTreeProduction20_sem
+    (value0 : String) :
+    Grammar.ptSem (parseTreeProduction20 value0) = semanticAction20 (value0) := by
+  unfold parseTreeProduction20
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 21, in source RHS order. -/
+noncomputable def parseTreeProduction21
+    (value0 : Int) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨6, of_decide_eq_true rfl⟩ : NonTerminal))
+      ([Tok.NUM value0]) :=
+  .nonTerminal (G := grammarInst) (⟨21, of_decide_eq_true rfl⟩ : Production) (.cons (.nil) ((parseTreeTokenNUM value0)))
+
+@[simp] theorem parseTreeProduction21_sem
+    (value0 : Int) :
+    Grammar.ptSem (parseTreeProduction21 value0) = semanticAction21 (value0) := by
+  unfold parseTreeProduction21
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+/-- Parse-tree constructor for production 22, in source RHS order. -/
+noncomputable def parseTreeProduction22
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨7, of_decide_eq_true rfl⟩ : NonTerminal))
+      (word0 ++ [Tok.EOF]) :=
+  .nonTerminal (G := grammarInst) (⟨22, of_decide_eq_true rfl⟩ : Production) (.cons (.cons (.nil) (tree0)) ((parseTreeTokenEOF)))
+
+@[simp] theorem parseTreeProduction22_sem
+    {word0 : List Tok}
+    (tree0 : Grammar.ParseTree (G := grammarInst)
+      (.NT (⟨0, of_decide_eq_true rfl⟩ : NonTerminal)) word0) :
+    Grammar.ptSem (parseTreeProduction22 tree0) = semanticAction22 (()) (Grammar.ptSem tree0) := by
+  unfold parseTreeProduction22
+  erw [Grammar.ptSem_nonTerminal, Grammar.ptlSem_cons, Grammar.ptlSem_cons, Grammar.ptlSem_nil]
+  with_unfolding_all rfl
+
+
 abbrev lastSymb' : NonInitState → Symbol Terminal NonTerminal
   | s => match s with
     | ⟨0, _⟩ => Symbol.NT ⟨1, of_decide_eq_true rfl⟩

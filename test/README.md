@@ -17,10 +17,26 @@ lake build parsers         # regenerate parser + lexer modules for stale non-hea
 lake build heavyParsers    # regenerate the heavy fixtures (c99)
 lake build Generated       # compile executable artifacts
 lake build VerifiedSmoke   # compile verified smoke tests (calc; default)
-lake build VerifiedMid     # compile + CACHE the non-heavy *Verified proof modules
+lake build VerifiedMid     # compile + CACHE non-heavy verified + roundtrip proofs
 lake build VerifiedHeavy   # compile + CACHE the heavy *Verified module (c99)
 lake build ParserTests     # calc/imp end-to-end + span/error-message/x_span tests
 ```
+
+## Roundtrip fixtures
+
+With `%option roundtrip_parser`, the generator writes production-tree helpers to
+`*Verified.lean` and the generic certificate theorem to `*ParserRoundtrip.lean`.
+Handwritten files define the printable domain and build certificates:
+
+| Fixture | Handwritten domain/printer | Handwritten proof |
+|---|---|---|
+| calc | `calc/CalcUnparse.lean` | `calc/CalcParserRoundtripProof.lean` |
+| IMP | `imp/ImpUnparse.lean` | `imp/ImpParserRoundtripProof.lean` |
+| Cedar | `cedar/CedarPrintable.lean` | `cedar/CedarParserRoundtripProof.lean` |
+
+After changing a grammar, run `lake build parsers` first. Then compile the
+handwritten proof and update uses of `parseTreeProductionN` if production indices
+or RHS shapes changed. Do not edit the generated helpers.
 
 Lake 5.0.0 has no `-j`; bound parallelism with `LAKE_NUM_JOBS` (e.g.
 `LAKE_NUM_JOBS=4 lake build VerifiedMid`).
