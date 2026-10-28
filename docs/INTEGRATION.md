@@ -281,8 +281,9 @@ re-check the proofs with `lake build MyProjectVerified` (cached).
 We recommend running the proof check at a different time than the general build:
 for example, as a separate CI job that runs on changes to the `.lig` file or the
 generator version, and before a release. Checking `ExprVerified` from scratch takes
-minutes for a Cedar-sized grammar (DESIGN §10 measures about 230 s for Cedar and
-about 18 min for C99), and the parser does not import it, so the default build
+tens of seconds for a Cedar-sized grammar (DESIGN §10 measures about 20 s for
+Cedar and about 30 s for C99 on a 32-core machine, before the optimizations it
+describes: about 4 min and about 18 min), and the parser does not import it, so the default build
 succeeds with or without it. That also means the default build does not tell you
 that the proofs hold; only the separate job does.
 

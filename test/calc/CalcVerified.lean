@@ -101,20 +101,28 @@ def verifiedGrammarView : Runtime.VerifiedGrammarView :=
     augmentedNonterminal := 3
     augmentedProduction := 7 }
 
-abbrev semT' : Symbol Terminal NonTerminal → Type
-  | Symbol.T ⟨0, _⟩ => Unit
-  | Symbol.T ⟨1, _⟩ => Unit
-  | Symbol.T ⟨2, _⟩ => Unit
-  | Symbol.T ⟨3, _⟩ => Unit
-  | Symbol.T ⟨4, _⟩ => Unit
-  | Symbol.T ⟨5, _⟩ => Int
-  | Symbol.T ⟨6, _⟩ => Unit
-  | Symbol.T ⟨7, _⟩ => Unit
-  | Symbol.NT ⟨0, _⟩ => Int
-  | Symbol.NT ⟨1, _⟩ => Int
-  | Symbol.NT ⟨2, _⟩ => Int
-  | Symbol.NT ⟨3, _⟩ => Int
-  | _ => Unit
+def semTbl : List (Σ T : Type, T → CalcParser.VP) := [
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Int : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Int : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩,
+  ⟨(Int : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩,
+  ⟨(Int : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩,
+  ⟨(Int : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩]
+
+def semDefault : Σ T : Type, T → CalcParser.VP := ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩
+
+def symIdx : Symbol Terminal NonTerminal → Nat
+  | .T t => t.val
+  | .NT n => 8 + n.val
+
+abbrev semT' (s : Symbol Terminal NonTerminal) : Type :=
+  (semTbl.getD (symIdx s) semDefault).1
 
 def box : (pr : NonTerminal × List (Symbol Terminal NonTerminal)) → (act : arrowsRight (semT' (.NT pr.1)) (pr.2.map semT')) → ((pr : NonTerminal × List (Symbol Terminal NonTerminal)) × arrowsRight (semT' (.NT pr.1)) (pr.2.map semT')) :=
   fun pr act => ⟨pr, act⟩
@@ -444,6 +452,13 @@ def startNt' : InitState → NonTerminal
 
 abbrev St := State InitState NonInitState
 
+/-- Read the `width`-bit field number `i` of a packed table row. -/
+def packedField (row width i : Nat) : Nat := (row >>> (width * i)) % (1 <<< width)
+
+def stateRow : St → Nat
+  | .Init _ => 0
+  | .Ninit s => s.val + 1
+
 def decodeLA (term : Terminal) (code : Nat) : LookaheadAction NonInitState lastSymb' term :=
   if code = 0 then LookaheadAction.Fail
   else if code % 2 = 1 then
@@ -452,48 +467,57 @@ def decodeLA (term : Terminal) (code : Nat) : LookaheadAction NonInitState lastS
     (if hs : (code - 2) / 2 < 14 then
       (if h : Symbol.T term = lastSymb' ⟨(code - 2) / 2, hs⟩ then LookaheadAction.Shift ⟨(code - 2) / 2, hs⟩ h else LookaheadAction.Fail)
      else LookaheadAction.Fail)
-def laInit : Array Nat :=
-  #[0, 0, 8, 0, 0, 10, 0, 0]
-def laCodesNinit : Array (Array Nat) :=
-  #[#[12, 0, 0, 0, 0, 0, 0, 14], #[3, 16, 0, 3, 18, 0, 0, 3], #[9, 9, 0, 9, 9, 0, 0, 9], #[0, 0, 8, 0, 0, 10, 0, 0],
-    #[13, 13, 0, 13, 13, 0, 0, 13], #[0, 0, 8, 0, 0, 10, 0, 0], #[15, 15, 15, 15, 15, 15, 15, 15],
-    #[0, 0, 8, 0, 0, 10, 0, 0], #[0, 0, 8, 0, 0, 10, 0, 0], #[12, 0, 0, 28, 0, 0, 0, 0],
-    #[1, 16, 0, 1, 18, 0, 0, 1], #[5, 5, 0, 5, 5, 0, 0, 5], #[7, 7, 0, 7, 7, 0, 0, 7],
-    #[11, 11, 0, 11, 11, 0, 0, 11]]
-def actionTable' : St → Action NonInitState lastSymb'
-  | .Init _ => Action.Lookahead (fun term => decodeLA term (laInit.getD term.val 0))
-  | .Ninit s => match s with
-    | ⟨0, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 0 #[]).getD term.val 0))
-    | ⟨1, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 1 #[]).getD term.val 0))
-    | ⟨2, _⟩ => Action.DefaultReduce ⟨4, of_decide_eq_true rfl⟩
-    | ⟨3, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 3 #[]).getD term.val 0))
-    | ⟨4, _⟩ => Action.DefaultReduce ⟨6, of_decide_eq_true rfl⟩
-    | ⟨5, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 5 #[]).getD term.val 0))
-    | ⟨6, _⟩ => Action.DefaultReduce ⟨7, of_decide_eq_true rfl⟩
-    | ⟨7, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 7 #[]).getD term.val 0))
-    | ⟨8, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 8 #[]).getD term.val 0))
-    | ⟨9, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 9 #[]).getD term.val 0))
-    | ⟨10, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 10 #[]).getD term.val 0))
-    | ⟨11, _⟩ => Action.DefaultReduce ⟨2, of_decide_eq_true rfl⟩
-    | ⟨12, _⟩ => Action.DefaultReduce ⟨3, of_decide_eq_true rfl⟩
-    | ⟨13, _⟩ => Action.DefaultReduce ⟨5, of_decide_eq_true rfl⟩
-    | _ => Action.Lookahead (fun _ => LookaheadAction.Fail)
 
-def gotoTable' : St → (nt : NonTerminal) → Option { s : NonInitState // Symbol.NT nt = lastSymb' s }
-  | .Init _, nt => match nt with
-    | ⟨0, _⟩ => some ⟨⟨0, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨1, _⟩ => some ⟨⟨1, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨2, _⟩ => some ⟨⟨2, of_decide_eq_true rfl⟩, by rfl⟩
-    | _ => none
-  | .Ninit s, nt => match s, nt with
-    | ⟨3, _⟩, ⟨0, _⟩ => some ⟨⟨9, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨3, _⟩, ⟨1, _⟩ => some ⟨⟨1, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨3, _⟩, ⟨2, _⟩ => some ⟨⟨2, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨5, _⟩, ⟨1, _⟩ => some ⟨⟨10, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨5, _⟩, ⟨2, _⟩ => some ⟨⟨2, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨7, _⟩, ⟨2, _⟩ => some ⟨⟨11, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨8, _⟩, ⟨2, _⟩ => some ⟨⟨12, of_decide_eq_true rfl⟩, by rfl⟩
-    | _, _ => none
+def actionRows : Array Nat :=
+  #[335552512,
+    481036337164,
+    103098188291,
+    5806805516585,
+    335552512,
+    8143272051117,
+    335552512,
+    9328114777583,
+    335552512,
+    335552512,
+    917516,
+    34378646017,
+    3470338982053,
+    4638572249319,
+    6975038783851]
+
+def actionTable' (s : St) : Action NonInitState lastSymb' :=
+  let row := actionRows.getD (stateRow s) 0
+  match packedField row 5 8 with
+  | 0 => Action.Lookahead (fun term => decodeLA term (packedField row 5 term.val))
+  | p + 1 =>
+    if hp : p < 8 then Action.DefaultReduce ⟨p, hp⟩
+    else Action.Lookahead (fun _ => LookaheadAction.Fail)
+
+def gotoRows : Array Nat :=
+  #[801,
+    0,
+    0,
+    0,
+    810,
+    0,
+    944,
+    0,
+    3072,
+    3328,
+    0,
+    0,
+    0,
+    0,
+    0]
+
+def gotoTable' (s : St) (nt : NonTerminal) :
+    Option { s : NonInitState // Symbol.NT nt = lastSymb' s } :=
+  match packedField (gotoRows.getD (stateRow s) 0) 4 nt.val with
+  | 0 => none
+  | c + 1 =>
+    if hs : c < 14 then
+      (if h : Symbol.NT nt = lastSymb' ⟨c, hs⟩ then some ⟨⟨c, hs⟩, h⟩ else none)
+    else none
 
 def stateSet0 : St → Bool
   | s => (match s with | .Init _ => true | _ => false)
@@ -553,24 +577,34 @@ def pastStates' : NonInitState → List (St → Bool)
     | ⟨12, _⟩ => [stateSet10, stateSet6, stateSet2]
     | ⟨13, _⟩ => [stateSet11, stateSet7, stateSet3]
     | _ => []
-def items' : St → List Item
-  | .Init _ => [⟨⟨0, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨1, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨2, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨3, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨4, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨6, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨7, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-  | .Ninit s => match s with
-    | ⟨0, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨7, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨1, _⟩ => [⟨⟨1, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨2, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨3, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨2, _⟩ => [⟨⟨4, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨3, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩]⟩, ⟨⟨1, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩]⟩, ⟨⟨2, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩]⟩, ⟨⟨3, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩]⟩, ⟨⟨4, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨6, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩]⟩]
-    | ⟨4, _⟩ => [⟨⟨6, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨5, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨2, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨3, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨4, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨6, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨6, _⟩ => [⟨⟨7, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨7, _⟩ => [⟨⟨2, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨6, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨8, _⟩ => [⟨⟨3, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨6, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨9, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨10, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 3, [⟨0, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨2, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩, ⟨⟨3, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨11, _⟩ => [⟨⟨2, of_decide_eq_true rfl⟩, 3, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨12, _⟩ => [⟨⟨3, of_decide_eq_true rfl⟩, 3, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | ⟨13, _⟩ => [⟨⟨5, of_decide_eq_true rfl⟩, 3, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩]⟩]
-    | _ => []
+def itemRows : Array Nat :=
+  #[84777614407070780075943504402722062344,
+    4387176185858,
+    43714852129357827,
+    162856961,
+    9006593214876748350692774684153348104,
+    162889729,
+    192008481054895775028809826310,
+    268025857,
+    43657674054205443,
+    43657674054221827,
+    2672821534722,
+    43714852129865731,
+    163348481,
+    163364865,
+    163397633]
+
+def decodeItems (row : Nat) : List Item :=
+  (List.range (packedField row 14 0)).map fun i =>
+    let item := packedField row 14 (i + 1)
+    ⟨Fin.ofNat 8 (item % (1 <<< 4)),
+     (item >>> 4) % (1 <<< 2),
+     (List.range 8).filterMap fun t =>
+       if ((item >>> 6) >>> t) % 2 = 1 then some (Fin.ofNat 8 t) else none⟩
+
+def itemTable : Array (List Item) := itemRows.map decodeItems
+
+def items' (s : St) : List Item := itemTable.getD (stateRow s) []
 def nullableNt' : NonTerminal → Bool
   | nt => match nt with
     | ⟨0, _⟩ => false
@@ -635,21 +669,64 @@ def parse (input : List Tok) (logNSteps : Nat := 40) : Option Int :=
   | .Parsed r _ => some r
   | _ => none
 
-def refinementEncodeValue : (symbol : Symbol Terminal NonTerminal) → semT' symbol → CalcParser.VP
-  | .T ⟨0, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨1, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨2, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨3, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨4, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨5, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .T ⟨6, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨7, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨n + 8, h⟩, _ => absurd h (by omega)
-  | .NT ⟨0, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .NT ⟨1, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .NT ⟨2, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .NT ⟨3, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .NT ⟨n + 4, h⟩, _ => absurd h (by omega)
+def refinementEncodeValue (s : Symbol Terminal NonTerminal) (v : semT' s) : CalcParser.VP :=
+  (semTbl.getD (symIdx s) semDefault).2 v
+
+theorem refinementSemanticAgrees0 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨0, of_decide_eq_true rfl⟩ : Production))),
+      CalcParser.table.sem 0 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨0, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨0, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.nil))) => rfl
+
+theorem refinementSemanticAgrees1 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨1, of_decide_eq_true rfl⟩ : Production))),
+      CalcParser.table.sem 1 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨1, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨1, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees2 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨2, of_decide_eq_true rfl⟩ : Production))),
+      CalcParser.table.sem 2 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨2, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨2, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.nil))) => rfl
+
+theorem refinementSemanticAgrees3 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨3, of_decide_eq_true rfl⟩ : Production))),
+      CalcParser.table.sem 3 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨3, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨3, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.nil))) => rfl
+
+theorem refinementSemanticAgrees4 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨4, of_decide_eq_true rfl⟩ : Production))),
+      CalcParser.table.sem 4 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨4, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨4, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees5 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨5, of_decide_eq_true rfl⟩ : Production))),
+      CalcParser.table.sem 5 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨5, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨5, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.nil))) => rfl
+
+theorem refinementSemanticAgrees6 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨6, of_decide_eq_true rfl⟩ : Production))),
+      CalcParser.table.sem 6 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨6, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨6, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees7 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨7, of_decide_eq_true rfl⟩ : Production))),
+      CalcParser.table.sem 7 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨7, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨7, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees :
     ∀ (production : Production)
@@ -657,14 +734,14 @@ theorem refinementSemanticAgrees :
       CalcParser.table.sem production.val (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' production))
           (values.apply (prodAction' production))
-  | ⟨0, _⟩, .cons x0 (.cons x1 (.cons x2 (.nil))) => rfl
-  | ⟨1, _⟩, .cons x0 (.nil) => rfl
-  | ⟨2, _⟩, .cons x0 (.cons x1 (.cons x2 (.nil))) => rfl
-  | ⟨3, _⟩, .cons x0 (.cons x1 (.cons x2 (.nil))) => rfl
-  | ⟨4, _⟩, .cons x0 (.nil) => rfl
-  | ⟨5, _⟩, .cons x0 (.cons x1 (.cons x2 (.nil))) => rfl
-  | ⟨6, _⟩, .cons x0 (.nil) => rfl
-  | ⟨7, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
+  | ⟨0, _⟩, values => refinementSemanticAgrees0 values
+  | ⟨1, _⟩, values => refinementSemanticAgrees1 values
+  | ⟨2, _⟩, values => refinementSemanticAgrees2 values
+  | ⟨3, _⟩, values => refinementSemanticAgrees3 values
+  | ⟨4, _⟩, values => refinementSemanticAgrees4 values
+  | ⟨5, _⟩, values => refinementSemanticAgrees5 values
+  | ⟨6, _⟩, values => refinementSemanticAgrees6 values
+  | ⟨7, _⟩, values => refinementSemanticAgrees7 values
   | ⟨n + 8, h⟩, _ => absurd h (by omega)
 
 def refinementStateIndex : St → Nat

@@ -149,38 +149,46 @@ def verifiedGrammarView : Runtime.VerifiedGrammarView :=
     augmentedNonterminal := 11
     augmentedProduction := 27 }
 
-abbrev semT' : Symbol Terminal NonTerminal → Type
-  | Symbol.T ⟨0, _⟩ => String
-  | Symbol.T ⟨1, _⟩ => String
-  | Symbol.T ⟨2, _⟩ => String
-  | Symbol.T ⟨3, _⟩ => String
-  | Symbol.T ⟨4, _⟩ => String
-  | Symbol.T ⟨5, _⟩ => String
-  | Symbol.T ⟨6, _⟩ => String
-  | Symbol.T ⟨7, _⟩ => Unit
-  | Symbol.T ⟨8, _⟩ => Unit
-  | Symbol.T ⟨9, _⟩ => Unit
-  | Symbol.T ⟨10, _⟩ => Unit
-  | Symbol.T ⟨11, _⟩ => Unit
-  | Symbol.T ⟨12, _⟩ => Unit
-  | Symbol.T ⟨13, _⟩ => Unit
-  | Symbol.T ⟨14, _⟩ => Unit
-  | Symbol.T ⟨15, _⟩ => Unit
-  | Symbol.T ⟨16, _⟩ => Unit
-  | Symbol.T ⟨17, _⟩ => Unit
-  | Symbol.NT ⟨0, _⟩ => Frontend.LigResult
-  | Symbol.NT ⟨1, _⟩ => Array Frontend.Directive
-  | Symbol.NT ⟨2, _⟩ => Frontend.Directive
-  | Symbol.NT ⟨3, _⟩ => Array Frontend.TokenDecl
-  | Symbol.NT ⟨4, _⟩ => Array String
-  | Symbol.NT ⟨5, _⟩ => Array Frontend.Rule
-  | Symbol.NT ⟨6, _⟩ => Frontend.Rule
-  | Symbol.NT ⟨7, _⟩ => Array Frontend.Alt
-  | Symbol.NT ⟨8, _⟩ => Frontend.Alt
-  | Symbol.NT ⟨9, _⟩ => Array Frontend.Elem
-  | Symbol.NT ⟨10, _⟩ => Frontend.Elem
-  | Symbol.NT ⟨11, _⟩ => Frontend.LigResult
-  | _ => Unit
+def semTbl : List (Σ T : Type, T → LeanParserGenerator.Frontend.Generated.LigParser.VP) := [
+  ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
+  ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
+  ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
+  ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
+  ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
+  ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
+  ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Frontend.LigResult : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩,
+  ⟨(Array Frontend.Directive : Type), fun v => (Runtime.Span.dummy, .v1 v)⟩,
+  ⟨(Frontend.Directive : Type), fun v => (Runtime.Span.dummy, .v2 v)⟩,
+  ⟨(Array Frontend.TokenDecl : Type), fun v => (Runtime.Span.dummy, .v3 v)⟩,
+  ⟨(Array String : Type), fun v => (Runtime.Span.dummy, .v4 v)⟩,
+  ⟨(Array Frontend.Rule : Type), fun v => (Runtime.Span.dummy, .v5 v)⟩,
+  ⟨(Frontend.Rule : Type), fun v => (Runtime.Span.dummy, .v6 v)⟩,
+  ⟨(Array Frontend.Alt : Type), fun v => (Runtime.Span.dummy, .v7 v)⟩,
+  ⟨(Frontend.Alt : Type), fun v => (Runtime.Span.dummy, .v8 v)⟩,
+  ⟨(Array Frontend.Elem : Type), fun v => (Runtime.Span.dummy, .v9 v)⟩,
+  ⟨(Frontend.Elem : Type), fun v => (Runtime.Span.dummy, .v10 v)⟩,
+  ⟨(Frontend.LigResult : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩]
+
+def semDefault : Σ T : Type, T → LeanParserGenerator.Frontend.Generated.LigParser.VP := ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩
+
+def symIdx : Symbol Terminal NonTerminal → Nat
+  | .T t => t.val
+  | .NT n => 18 + n.val
+
+abbrev semT' (s : Symbol Terminal NonTerminal) : Type :=
+  (semTbl.getD (symIdx s) semDefault).1
 
 def box : (pr : NonTerminal × List (Symbol Terminal NonTerminal)) → (act : arrowsRight (semT' (.NT pr.1)) (pr.2.map semT')) → ((pr : NonTerminal × List (Symbol Terminal NonTerminal)) × arrowsRight (semT' (.NT pr.1)) (pr.2.map semT')) :=
   fun pr act => ⟨pr, act⟩
@@ -432,6 +440,13 @@ def startNt' : InitState → NonTerminal
 
 abbrev St := State InitState NonInitState
 
+/-- Read the `width`-bit field number `i` of a packed table row. -/
+def packedField (row width i : Nat) : Nat := (row >>> (width * i)) % (1 <<< width)
+
+def stateRow : St → Nat
+  | .Init _ => 0
+  | .Ninit s => s.val + 1
+
 def decodeLA (term : Terminal) (code : Nat) : LookaheadAction NonInitState lastSymb' term :=
   if code = 0 then LookaheadAction.Fail
   else if code % 2 = 1 then
@@ -440,121 +455,115 @@ def decodeLA (term : Terminal) (code : Nat) : LookaheadAction NonInitState lastS
     (if hs : (code - 2) / 2 < 43 then
       (if h : Symbol.T term = lastSymb' ⟨(code - 2) / 2, hs⟩ then LookaheadAction.Shift ⟨(code - 2) / 2, hs⟩ h else LookaheadAction.Fail)
      else LookaheadAction.Fail)
-def laInit : Array Nat :=
-  #[6, 8, 20, 0, 0, 0, 0, 10, 12, 14, 16, 18, 0, 0, 0, 0, 0, 0]
-def laCodesNinit : Array (Array Nat) :=
-  #[#[6, 8, 20, 0, 0, 0, 0, 10, 12, 14, 16, 18, 24, 0, 0, 0, 0, 0],
-    #[5, 5, 5, 0, 0, 0, 0, 5, 5, 5, 5, 5, 5, 0, 0, 0, 0, 0],
-    #[7, 7, 7, 0, 0, 0, 0, 7, 7, 7, 7, 7, 7, 0, 0, 0, 0, 0],
-    #[9, 9, 9, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 32, 0, 0, 36, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 38, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[23, 23, 23, 0, 0, 0, 0, 23, 23, 23, 23, 23, 23, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 44],
-    #[0, 0, 0, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[3, 3, 3, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0],
-    #[11, 11, 11, 0, 0, 0, 0, 11, 11, 11, 11, 11, 11, 0, 0, 0, 0, 0],
-    #[13, 13, 13, 0, 0, 0, 0, 13, 13, 13, 13, 13, 13, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 36, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[27, 27, 27, 0, 0, 0, 54, 27, 27, 27, 27, 27, 27, 0, 0, 0, 0, 0],
-    #[31, 31, 31, 0, 0, 0, 31, 31, 31, 31, 31, 31, 31, 0, 0, 0, 0, 0],
-    #[15, 15, 15, 0, 0, 0, 0, 15, 15, 15, 15, 15, 15, 0, 0, 0, 0, 0],
-    #[17, 17, 17, 0, 0, 0, 0, 17, 17, 17, 17, 17, 17, 0, 0, 0, 0, 0],
-    #[21, 21, 21, 0, 0, 0, 56, 21, 21, 21, 21, 21, 21, 0, 0, 0, 0, 0],
-    #[55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55, 55],
-    #[0, 0, 0, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    #[0, 0, 0, 0, 0, 0, 35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 35],
-    #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 0, 0, 0, 0],
-    #[25, 25, 25, 0, 0, 0, 54, 25, 25, 25, 25, 25, 25, 0, 0, 0, 0, 0],
-    #[29, 29, 29, 0, 0, 0, 29, 29, 29, 29, 29, 29, 29, 0, 0, 0, 0, 0],
-    #[19, 19, 19, 0, 0, 0, 0, 19, 19, 19, 19, 19, 19, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 33],
-    #[0, 0, 0, 0, 62, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 37, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 37],
-    #[0, 0, 0, 0, 0, 0, 41, 0, 0, 0, 0, 0, 0, 0, 41, 0, 0, 41],
-    #[0, 0, 0, 0, 0, 74, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 39, 0, 0, 0, 0, 0, 0, 0, 39, 0, 0, 39],
-    #[0, 0, 0, 0, 0, 80, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 45, 0, 0, 0, 0, 0, 0, 0, 45, 0, 0, 45],
-    #[0, 0, 0, 0, 0, 49, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 53, 53, 0, 0, 0, 0, 0, 0, 0, 0, 84, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 43, 0, 0, 0, 0, 0, 0, 0, 43, 0, 0, 43],
-    #[0, 0, 0, 0, 0, 47, 47, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 0, 86, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    #[0, 0, 0, 0, 0, 51, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
-def actionTable' : St → Action NonInitState lastSymb'
-  | .Init _ => Action.Lookahead (fun term => decodeLA term (laInit.getD term.val 0))
-  | .Ninit s => match s with
-    | ⟨0, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 0 #[]).getD term.val 0))
-    | ⟨1, _⟩ => Action.DefaultReduce ⟨2, of_decide_eq_true rfl⟩
-    | ⟨2, _⟩ => Action.DefaultReduce ⟨3, of_decide_eq_true rfl⟩
-    | ⟨3, _⟩ => Action.DefaultReduce ⟨4, of_decide_eq_true rfl⟩
-    | ⟨4, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 4 #[]).getD term.val 0))
-    | ⟨5, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 5 #[]).getD term.val 0))
-    | ⟨6, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 6 #[]).getD term.val 0))
-    | ⟨7, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 7 #[]).getD term.val 0))
-    | ⟨8, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 8 #[]).getD term.val 0))
-    | ⟨9, _⟩ => Action.DefaultReduce ⟨11, of_decide_eq_true rfl⟩
-    | ⟨10, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 10 #[]).getD term.val 0))
-    | ⟨11, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 11 #[]).getD term.val 0))
-    | ⟨12, _⟩ => Action.DefaultReduce ⟨1, of_decide_eq_true rfl⟩
-    | ⟨13, _⟩ => Action.DefaultReduce ⟨5, of_decide_eq_true rfl⟩
-    | ⟨14, _⟩ => Action.DefaultReduce ⟨6, of_decide_eq_true rfl⟩
-    | ⟨15, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 15 #[]).getD term.val 0))
-    | ⟨16, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 16 #[]).getD term.val 0))
-    | ⟨17, _⟩ => Action.DefaultReduce ⟨15, of_decide_eq_true rfl⟩
-    | ⟨18, _⟩ => Action.DefaultReduce ⟨7, of_decide_eq_true rfl⟩
-    | ⟨19, _⟩ => Action.DefaultReduce ⟨8, of_decide_eq_true rfl⟩
-    | ⟨20, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 20 #[]).getD term.val 0))
-    | ⟨21, _⟩ => Action.DefaultReduce ⟨27, of_decide_eq_true rfl⟩
-    | ⟨22, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 22 #[]).getD term.val 0))
-    | ⟨23, _⟩ => Action.DefaultReduce ⟨17, of_decide_eq_true rfl⟩
-    | ⟨24, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 24 #[]).getD term.val 0))
-    | ⟨25, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 25 #[]).getD term.val 0))
-    | ⟨26, _⟩ => Action.DefaultReduce ⟨14, of_decide_eq_true rfl⟩
-    | ⟨27, _⟩ => Action.DefaultReduce ⟨9, of_decide_eq_true rfl⟩
-    | ⟨28, _⟩ => Action.DefaultReduce ⟨16, of_decide_eq_true rfl⟩
-    | ⟨29, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 29 #[]).getD term.val 0))
-    | ⟨30, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 30 #[]).getD term.val 0))
-    | ⟨31, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 31 #[]).getD term.val 0))
-    | ⟨32, _⟩ => Action.DefaultReduce ⟨20, of_decide_eq_true rfl⟩
-    | ⟨33, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 33 #[]).getD term.val 0))
-    | ⟨34, _⟩ => Action.DefaultReduce ⟨19, of_decide_eq_true rfl⟩
-    | ⟨35, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 35 #[]).getD term.val 0))
-    | ⟨36, _⟩ => Action.DefaultReduce ⟨22, of_decide_eq_true rfl⟩
-    | ⟨37, _⟩ => Action.DefaultReduce ⟨24, of_decide_eq_true rfl⟩
-    | ⟨38, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 38 #[]).getD term.val 0))
-    | ⟨39, _⟩ => Action.DefaultReduce ⟨21, of_decide_eq_true rfl⟩
-    | ⟨40, _⟩ => Action.DefaultReduce ⟨23, of_decide_eq_true rfl⟩
-    | ⟨41, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 41 #[]).getD term.val 0))
-    | ⟨42, _⟩ => Action.DefaultReduce ⟨25, of_decide_eq_true rfl⟩
-    | _ => Action.Lookahead (fun _ => LookaheadAction.Fail)
 
-def gotoTable' : St → (nt : NonTerminal) → Option { s : NonInitState // Symbol.NT nt = lastSymb' s }
-  | .Init _, nt => match nt with
-    | ⟨0, _⟩ => some ⟨⟨10, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨1, _⟩ => some ⟨⟨0, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨2, _⟩ => some ⟨⟨1, of_decide_eq_true rfl⟩, by rfl⟩
-    | _ => none
-  | .Ninit s, nt => match s, nt with
-    | ⟨0, _⟩, ⟨2, _⟩ => some ⟨⟨12, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨5, _⟩, ⟨3, _⟩ => some ⟨⟨14, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨5, _⟩, ⟨4, _⟩ => some ⟨⟨16, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨11, _⟩, ⟨5, _⟩ => some ⟨⟨22, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨11, _⟩, ⟨6, _⟩ => some ⟨⟨23, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨15, _⟩, ⟨4, _⟩ => some ⟨⟨25, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨22, _⟩, ⟨6, _⟩ => some ⟨⟨28, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨30, _⟩, ⟨7, _⟩ => some ⟨⟨31, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨30, _⟩, ⟨8, _⟩ => some ⟨⟨32, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨31, _⟩, ⟨8, _⟩ => some ⟨⟨34, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨33, _⟩, ⟨9, _⟩ => some ⟨⟨35, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨33, _⟩, ⟨10, _⟩ => some ⟨⟨37, of_decide_eq_true rfl⟩, by rfl⟩
-    | ⟨35, _⟩, ⟨10, _⟩ => some ⟨⟨40, of_decide_eq_true rfl⟩, by rfl⟩
-    | _, _ => none
+def actionRows : Array Nat :=
+  #[2739102557593538180482054,
+    466966617289611141267653638,
+    255211775190801323191175451542324068997,
+    340282366921074929294476901787665286023,
+    425352958651348535397778352033006503049,
+    123145302310912,
+    158329741508608,
+    167125767421952,
+    175921860444160,
+    184717953466368,
+    1020847100763263778120888503750395022231,
+    29243015907268149203883755326167580672,
+    219902325555200,
+    170141183460527717087874001296982851971,
+    510423550381622141501079802278347720075,
+    595494142111895747604381252523688937101,
+    158329674399744,
+    526368205680515724400315803,
+    1361129467684358202534094441071201734559,
+    680564733842169353707682702769030154127,
+    765635325572442959810984153014371371153,
+    409397493307129358295845525,
+    2418818163290371636941428557945108290487,
+    664613997892457936452123432465727488,
+    1554532141070459113361002510929490870272,
+    148552804714245632987894906880,
+    487377968222717337001151641,
+    1276058875954084596430792982029767495325,
+    850705917302716565914285603259712588179,
+    1468132321344439581622255043215175450624,
+    16642998272,
+    21550060203879899825443954491392,
+    24590739472081147528620418786861776896,
+    1813731613241936360916596279413644984320,
+    345590248505344,
+    1727331792882091529063734110950977961984,
+    345796406935552,
+    1986531253961626024622320616338979028992,
+    2126764793255865396646091513636457545728,
+    3407444813413480631458055747272704,
+    1900131433601781192769458447876312006656,
+    2041694201525630780780247852913702993920,
+    378231999954944,
+    2211835384986100012511935174359212097536]
+
+def actionTable' (s : St) : Action NonInitState lastSymb' :=
+  let row := actionRows.getD (stateRow s) 0
+  match packedField row 7 18 with
+  | 0 => Action.Lookahead (fun term => decodeLA term (packedField row 7 term.val))
+  | p + 1 =>
+    if hp : p < 28 then Action.DefaultReduce ⟨p, hp⟩
+    else Action.Lookahead (fun _ => LookaheadAction.Fail)
+
+def gotoRows : Array Nat :=
+  #[8267,
+    53248,
+    0,
+    0,
+    0,
+    0,
+    289144832,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1673963503616,
+    0,
+    0,
+    0,
+    436207616,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1992864825344,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    9429411719806976,
+    9851624184872960,
+    0,
+    44459535521401536512,
+    0,
+    47269781688880726016,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0]
+
+def gotoTable' (s : St) (nt : NonTerminal) :
+    Option { s : NonInitState // Symbol.NT nt = lastSymb' s } :=
+  match packedField (gotoRows.getD (stateRow s) 0) 6 nt.val with
+  | 0 => none
+  | c + 1 =>
+    if hs : c < 43 then
+      (if h : Symbol.NT nt = lastSymb' ⟨c, hs⟩ then some ⟨⟨c, hs⟩, h⟩ else none)
+    else none
 
 def stateSet0 : St → Bool
   | s => (match s with | .Init _ => true | _ => false)
@@ -700,53 +709,63 @@ def pastStates' : NonInitState → List (St → Bool)
     | ⟨41, _⟩ => [stateSet24, stateSet22]
     | ⟨42, _⟩ => [stateSet25, stateSet24, stateSet22]
     | _ => []
-def items' : St → List Item
-  | .Init _ => [⟨⟨0, of_decide_eq_true rfl⟩, 0, [⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨1, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨2, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨3, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨4, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨6, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨7, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨8, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨9, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨10, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨11, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨27, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩, ⟨13, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨15, of_decide_eq_true rfl⟩, ⟨16, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-  | .Ninit s => match s with
-    | ⟨0, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 1, [⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨1, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨3, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨4, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨5, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨6, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨7, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨8, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨9, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨10, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨11, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨1, _⟩ => [⟨⟨2, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨2, _⟩ => [⟨⟨3, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨3, _⟩ => [⟨⟨4, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨4, _⟩ => [⟨⟨5, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨5, _⟩ => [⟨⟨6, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨12, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨13, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨14, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨15, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨6, _⟩ => [⟨⟨7, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨7, _⟩ => [⟨⟨8, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨8, _⟩ => [⟨⟨9, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨10, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨9, _⟩ => [⟨⟨11, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨10, _⟩ => [⟨⟨27, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩, ⟨13, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨15, of_decide_eq_true rfl⟩, ⟨16, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨11, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 2, [⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨16, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨17, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨18, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨12, _⟩ => [⟨⟨1, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨13, _⟩ => [⟨⟨5, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨14, _⟩ => [⟨⟨6, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨15, _⟩ => [⟨⟨12, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨14, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨15, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨16, _⟩ => [⟨⟨13, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨14, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨17, _⟩ => [⟨⟨15, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨18, _⟩ => [⟨⟨7, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨19, _⟩ => [⟨⟨8, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨20, _⟩ => [⟨⟨9, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨10, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨21, _⟩ => [⟨⟨27, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩, ⟨4, of_decide_eq_true rfl⟩, ⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩, ⟨13, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨15, of_decide_eq_true rfl⟩, ⟨16, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨22, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 3, [⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨16, of_decide_eq_true rfl⟩, 1, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨18, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨23, _⟩ => [⟨⟨17, of_decide_eq_true rfl⟩, 1, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨24, _⟩ => [⟨⟨18, of_decide_eq_true rfl⟩, 1, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨25, _⟩ => [⟨⟨12, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩, ⟨⟨14, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨26, _⟩ => [⟨⟨14, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨27, _⟩ => [⟨⟨9, of_decide_eq_true rfl⟩, 3, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨7, of_decide_eq_true rfl⟩, ⟨8, of_decide_eq_true rfl⟩, ⟨9, of_decide_eq_true rfl⟩, ⟨10, of_decide_eq_true rfl⟩, ⟨11, of_decide_eq_true rfl⟩, ⟨12, of_decide_eq_true rfl⟩]⟩]
-    | ⟨28, _⟩ => [⟨⟨16, of_decide_eq_true rfl⟩, 2, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨29, _⟩ => [⟨⟨18, of_decide_eq_true rfl⟩, 2, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨30, _⟩ => [⟨⟨18, of_decide_eq_true rfl⟩, 3, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨19, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨20, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨21, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨22, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨31, _⟩ => [⟨⟨18, of_decide_eq_true rfl⟩, 4, [⟨6, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨19, of_decide_eq_true rfl⟩, 1, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨21, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨22, of_decide_eq_true rfl⟩, 0, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨32, _⟩ => [⟨⟨20, of_decide_eq_true rfl⟩, 1, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨33, _⟩ => [⟨⟨21, of_decide_eq_true rfl⟩, 1, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨22, of_decide_eq_true rfl⟩, 1, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨23, of_decide_eq_true rfl⟩, 0, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩, ⟨⟨24, of_decide_eq_true rfl⟩, 0, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩, ⟨⟨25, of_decide_eq_true rfl⟩, 0, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩, ⟨⟨26, of_decide_eq_true rfl⟩, 0, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩]
-    | ⟨34, _⟩ => [⟨⟨19, of_decide_eq_true rfl⟩, 2, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨35, _⟩ => [⟨⟨21, of_decide_eq_true rfl⟩, 2, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩, ⟨⟨23, of_decide_eq_true rfl⟩, 1, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩, ⟨⟨25, of_decide_eq_true rfl⟩, 0, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩, ⟨⟨26, of_decide_eq_true rfl⟩, 0, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩]
-    | ⟨36, _⟩ => [⟨⟨22, of_decide_eq_true rfl⟩, 2, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨37, _⟩ => [⟨⟨24, of_decide_eq_true rfl⟩, 1, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩]
-    | ⟨38, _⟩ => [⟨⟨25, of_decide_eq_true rfl⟩, 1, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩, ⟨⟨26, of_decide_eq_true rfl⟩, 1, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩]
-    | ⟨39, _⟩ => [⟨⟨21, of_decide_eq_true rfl⟩, 3, [⟨6, of_decide_eq_true rfl⟩, ⟨14, of_decide_eq_true rfl⟩, ⟨17, of_decide_eq_true rfl⟩]⟩]
-    | ⟨40, _⟩ => [⟨⟨23, of_decide_eq_true rfl⟩, 2, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩]
-    | ⟨41, _⟩ => [⟨⟨25, of_decide_eq_true rfl⟩, 2, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩]
-    | ⟨42, _⟩ => [⟨⟨25, of_decide_eq_true rfl⟩, 3, [⟨5, of_decide_eq_true rfl⟩, ⟨6, of_decide_eq_true rfl⟩]⟩]
-    | _ => []
+def itemRows : Array Nat :=
+  #[37576553116234485371441831100788112202253503877472645294030321374595447390122136411130307985305647657108111373,
+    256890705294924914326210056359730743753079236245148462868573265751794373690109819950509064203,
+    138661005885441,
+    138661072994305,
+    138661140103169,
+    138661207212033,
+    2834654243401113204571540254986787134524882949,
+    138661341429761,
+    138661408538625,
+    9305418753527687151618,
+    138661609865217,
+    4503586406924289,
+    680897416070357872732341630447975923716,
+    138663086260225,
+    138663354695681,
+    138663421804545,
+    629419681575063717411588931587,
+    9379223744221303275522,
+    139761389928449,
+    138663488913409,
+    138663556022273,
+    9305562868717910491138,
+    4503588554407937,
+    10146162153338897851616363282435,
+    2252902613647361,
+    2252902680756225,
+    9379223744223383650306,
+    139763470303233,
+    138665770614785,
+    2252904694022145,
+    2252904828239873,
+    51403248393429445299297440760690037263473573893,
+    765968090197882731248539552791354408964,
+    2534377791684609,
+    2247241488586076133038253134148020378070680944508934,
+    2534379872059393,
+    498987848504234528785520159644188676,
+    2534380073385985,
+    1653025538049,
+    110941674873737445378,
+    2534382153760769,
+    1655105912833,
+    1655240130561,
+    1657387614209]
+
+def decodeItems (row : Nat) : List Item :=
+  (List.range (packedField row 26 0)).map fun i =>
+    let item := packedField row 26 (i + 1)
+    ⟨Fin.ofNat 28 (item % (1 <<< 5)),
+     (item >>> 5) % (1 <<< 3),
+     (List.range 18).filterMap fun t =>
+       if ((item >>> 8) >>> t) % 2 = 1 then some (Fin.ofNat 18 t) else none⟩
+
+def itemTable : Array (List Item) := itemRows.map decodeItems
+
+def items' (s : St) : List Item := itemTable.getD (stateRow s) []
 def nullableNt' : NonTerminal → Bool
   | nt => match nt with
     | ⟨0, _⟩ => false
@@ -827,39 +846,204 @@ def parse (input : List LigTok) (logNSteps : Nat := 40) : Option Frontend.LigRes
   | .Parsed r _ => some r
   | _ => none
 
-def refinementEncodeValue : (symbol : Symbol Terminal NonTerminal) → semT' symbol → LeanParserGenerator.Frontend.Generated.LigParser.VP
-  | .T ⟨0, _⟩, value => (Runtime.Span.dummy, .v11 value)
-  | .T ⟨1, _⟩, value => (Runtime.Span.dummy, .v11 value)
-  | .T ⟨2, _⟩, value => (Runtime.Span.dummy, .v11 value)
-  | .T ⟨3, _⟩, value => (Runtime.Span.dummy, .v11 value)
-  | .T ⟨4, _⟩, value => (Runtime.Span.dummy, .v11 value)
-  | .T ⟨5, _⟩, value => (Runtime.Span.dummy, .v11 value)
-  | .T ⟨6, _⟩, value => (Runtime.Span.dummy, .v11 value)
-  | .T ⟨7, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨8, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨9, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨10, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨11, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨12, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨13, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨14, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨15, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨16, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨17, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨n + 18, h⟩, _ => absurd h (by omega)
-  | .NT ⟨0, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .NT ⟨1, _⟩, value => (Runtime.Span.dummy, .v1 value)
-  | .NT ⟨2, _⟩, value => (Runtime.Span.dummy, .v2 value)
-  | .NT ⟨3, _⟩, value => (Runtime.Span.dummy, .v3 value)
-  | .NT ⟨4, _⟩, value => (Runtime.Span.dummy, .v4 value)
-  | .NT ⟨5, _⟩, value => (Runtime.Span.dummy, .v5 value)
-  | .NT ⟨6, _⟩, value => (Runtime.Span.dummy, .v6 value)
-  | .NT ⟨7, _⟩, value => (Runtime.Span.dummy, .v7 value)
-  | .NT ⟨8, _⟩, value => (Runtime.Span.dummy, .v8 value)
-  | .NT ⟨9, _⟩, value => (Runtime.Span.dummy, .v9 value)
-  | .NT ⟨10, _⟩, value => (Runtime.Span.dummy, .v10 value)
-  | .NT ⟨11, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .NT ⟨n + 12, h⟩, _ => absurd h (by omega)
+def refinementEncodeValue (s : Symbol Terminal NonTerminal) (v : semT' s) : LeanParserGenerator.Frontend.Generated.LigParser.VP :=
+  (semTbl.getD (symIdx s) semDefault).2 v
+
+theorem refinementSemanticAgrees0 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨0, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 0 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨0, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨0, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.nil))) => rfl
+
+theorem refinementSemanticAgrees1 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨1, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 1 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨1, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨1, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees2 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨2, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 2 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨2, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨2, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees3 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨3, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 3 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨3, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨3, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees4 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨4, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 4 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨4, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨4, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees5 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨5, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 5 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨5, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨5, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees6 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨6, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 6 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨6, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨6, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees7 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨7, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 7 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨7, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨7, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees8 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨8, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 8 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨8, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨8, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees9 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨9, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 9 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨9, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨9, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.nil))) => rfl
+
+theorem refinementSemanticAgrees10 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨10, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 10 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨10, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨10, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees11 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨11, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 11 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨11, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨11, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees12 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨12, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 12 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨12, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨12, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees13 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨13, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 13 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨13, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨13, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees14 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨14, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 14 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨14, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨14, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees15 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨15, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 15 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨15, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨15, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees16 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨16, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 16 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨16, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨16, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees17 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨17, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 17 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨17, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨17, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees18 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨18, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 18 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨18, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨18, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.cons _ (.nil)))) => rfl
+
+theorem refinementSemanticAgrees19 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨19, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 19 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨19, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨19, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees20 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨20, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 20 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨20, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨20, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees21 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨21, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 21 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨21, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨21, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.nil))) => rfl
+
+theorem refinementSemanticAgrees22 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨22, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 22 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨22, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨22, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees23 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨23, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 23 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨23, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨23, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees24 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨24, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 24 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨24, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨24, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees25 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨25, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 25 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨25, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨25, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.cons _ (.nil))) => rfl
+
+theorem refinementSemanticAgrees26 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨26, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 26 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨26, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨26, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees27 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨27, of_decide_eq_true rfl⟩ : Production))),
+      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 27 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨27, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨27, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees :
     ∀ (production : Production)
@@ -867,34 +1051,34 @@ theorem refinementSemanticAgrees :
       LeanParserGenerator.Frontend.Generated.LigParser.table.sem production.val (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' production))
           (values.apply (prodAction' production))
-  | ⟨0, _⟩, .cons x0 (.cons x1 (.cons x2 (.nil))) => rfl
-  | ⟨1, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨2, _⟩, .cons x0 (.nil) => rfl
-  | ⟨3, _⟩, .cons x0 (.nil) => rfl
-  | ⟨4, _⟩, .cons x0 (.nil) => rfl
-  | ⟨5, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨6, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨7, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨8, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨9, _⟩, .cons x0 (.cons x1 (.cons x2 (.nil))) => rfl
-  | ⟨10, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨11, _⟩, .cons x0 (.nil) => rfl
-  | ⟨12, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨13, _⟩, .cons x0 (.nil) => rfl
-  | ⟨14, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨15, _⟩, .cons x0 (.nil) => rfl
-  | ⟨16, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨17, _⟩, .cons x0 (.nil) => rfl
-  | ⟨18, _⟩, .cons x0 (.cons x1 (.cons x2 (.cons x3 (.nil)))) => rfl
-  | ⟨19, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨20, _⟩, .cons x0 (.nil) => rfl
-  | ⟨21, _⟩, .cons x0 (.cons x1 (.cons x2 (.nil))) => rfl
-  | ⟨22, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨23, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨24, _⟩, .cons x0 (.nil) => rfl
-  | ⟨25, _⟩, .cons x0 (.cons x1 (.cons x2 (.nil))) => rfl
-  | ⟨26, _⟩, .cons x0 (.nil) => rfl
-  | ⟨27, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
+  | ⟨0, _⟩, values => refinementSemanticAgrees0 values
+  | ⟨1, _⟩, values => refinementSemanticAgrees1 values
+  | ⟨2, _⟩, values => refinementSemanticAgrees2 values
+  | ⟨3, _⟩, values => refinementSemanticAgrees3 values
+  | ⟨4, _⟩, values => refinementSemanticAgrees4 values
+  | ⟨5, _⟩, values => refinementSemanticAgrees5 values
+  | ⟨6, _⟩, values => refinementSemanticAgrees6 values
+  | ⟨7, _⟩, values => refinementSemanticAgrees7 values
+  | ⟨8, _⟩, values => refinementSemanticAgrees8 values
+  | ⟨9, _⟩, values => refinementSemanticAgrees9 values
+  | ⟨10, _⟩, values => refinementSemanticAgrees10 values
+  | ⟨11, _⟩, values => refinementSemanticAgrees11 values
+  | ⟨12, _⟩, values => refinementSemanticAgrees12 values
+  | ⟨13, _⟩, values => refinementSemanticAgrees13 values
+  | ⟨14, _⟩, values => refinementSemanticAgrees14 values
+  | ⟨15, _⟩, values => refinementSemanticAgrees15 values
+  | ⟨16, _⟩, values => refinementSemanticAgrees16 values
+  | ⟨17, _⟩, values => refinementSemanticAgrees17 values
+  | ⟨18, _⟩, values => refinementSemanticAgrees18 values
+  | ⟨19, _⟩, values => refinementSemanticAgrees19 values
+  | ⟨20, _⟩, values => refinementSemanticAgrees20 values
+  | ⟨21, _⟩, values => refinementSemanticAgrees21 values
+  | ⟨22, _⟩, values => refinementSemanticAgrees22 values
+  | ⟨23, _⟩, values => refinementSemanticAgrees23 values
+  | ⟨24, _⟩, values => refinementSemanticAgrees24 values
+  | ⟨25, _⟩, values => refinementSemanticAgrees25 values
+  | ⟨26, _⟩, values => refinementSemanticAgrees26 values
+  | ⟨27, _⟩, values => refinementSemanticAgrees27 values
   | ⟨n + 28, h⟩, _ => absurd h (by omega)
 
 def refinementStateIndex : St → Nat

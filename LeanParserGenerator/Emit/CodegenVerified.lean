@@ -26,10 +26,13 @@ The semantic types in the grammar are verbatim user-specified code snippets: any
 error from the user will be printed in the output of the code generator.
 
 The generated parsing tables are dependently typed: the type of each action
-depends on the state index. In this implementation, the tables must be reducible:
-we match on `Fin`, and array lookups won't work.
-Shift/goto equality proofs rely on iota reduction to close by `rfl`.
-`Fin` also supplies the generated `Numbered → Alphabet` instances.
+depends on the state index. The action, goto, and item tables are emitted as packed
+`Nat` literals with generic decoders that rebuild the dependent values (including the
+`Shift`/goto equality proofs) at evaluation time; the validators and refinement checks
+evaluate these decoders, so a wrong table is rejected. The symbol-to-type map `semT'`
+is a table lookup (`emitSemTable`) rather than a `match`, which keeps `whnf` of the
+refinement's encoder cheap. `Fin` supplies the generated `Numbered → Alphabet`
+instances.
 -/
 public import LeanParserGenerator.Frontend.File
 public import LeanParserGenerator.Construct.Annotate
@@ -175,10 +178,56 @@ def emitVerifiedGrammarView (view : Runtime.VerifiedGrammarView) : String :=
     s!"    augmentedNonterminal := {view.augmentedNonterminal}",
     "    augmentedProduction := " ++ toString view.augmentedProduction ++ " }"]
 
-/-- Emit the dependent grammar defs: `semT'` (symbol → semantic type),
-    `box`, the named `semanticAction{n}`s, and `prodContents'` with its projections.
-    The `def`/`abbrev`/match skeleton is real `Syntax`; the dependent patterns,
-    signatures, and action bodies (which the generator does not parse) are leaves. -/
+/-- Emit `semTbl`, `symIdx`, and `semT'`: the semantic type of every grammar symbol,
+    read off one table indexed by symbol number (terminals first, then nonterminals).
+
+    Each table entry pairs the symbol's declared Lean type with its encoder into the
+    executable parser's value type `VP` (or into `Unit` when no executable module is
+    paired with this specification). Both `semT'` and the refinement's
+    `refinementEncodeValue` project from the same entry, so the encoder's argument
+    type is `semT' s` by definition, with no cast.
+
+    A `match` over every symbol is avoided because `whnf` of an n-arm matcher is
+    linear in n and the refinement's encoder mentions `semT'` once per arm, so each
+    reduction at a concrete symbol was quadratic (0.3 s on Cedar). `List.getD` at a
+    literal index is linear with a small constant. -/
+def emitSemTable (s : Surface) (g' : IR.Grammar) (ntNames : Array String)
+    (execModule : Option String) : String :=
+  let numT' := g'.numTerminals
+  let numN' := g'.numNonterminals
+  let e := collectTypes s
+  let realStart := (s.ntIdx s.start).getD 0
+  let target := match execModule with
+    | some m => s!"{m}.VP"
+    | none => "Unit"
+  let enc := fun (ty : String) => match execModule with
+    | some _ => s!"fun v => (Runtime.Span.dummy, .{e.ctorFor ty} v)"
+    | none => "fun _ => ()"
+  -- The ascription fixes the expected type: a bare user type name such as `And` can
+  -- otherwise be ambiguous with a root-namespace `Prop` connective.
+  let entry := fun (ty : String) => s!"⟨({ty} : Type), {enc ty}⟩"
+  let termEntries := (List.range numT').map fun i =>
+    entry (if i == numT' - 1 then "Unit" else termTy s i)
+  let ntEntries := (List.range numN').map fun i =>
+    entry (if i == g'.start then nontermTy s ntNames realStart else nontermTy s ntNames i)
+  lines [
+    s!"def semTbl : List (Σ T : Type, T → {target}) := [",
+    ",\n".intercalate ((termEntries ++ ntEntries).map ("  " ++ ·)) ++ "]",
+    "",
+    s!"def semDefault : Σ T : Type, T → {target} := {entry "Unit"}",
+    "",
+    "def symIdx : Symbol Terminal NonTerminal → Nat",
+    "  | .T t => t.val",
+    s!"  | .NT n => {numT'} + n.val",
+    "",
+    "abbrev semT' (s : Symbol Terminal NonTerminal) : Type :=",
+    "  (semTbl.getD (symIdx s) semDefault).1" ]
+
+/-- Emit the dependent grammar defs: `box`, the named `semanticAction{n}`s, and
+    `prodContents'` with its projections (the symbol → semantic type map `semT'` is
+    `emitSemTable`). The `def`/`abbrev`/match skeleton is real `Syntax`; the
+    dependent patterns, signatures, and action bodies (which the generator does not
+    parse) are leaves. -/
 def emitGrammar
     (s : Surface)
     (g' : IR.Grammar)
@@ -186,31 +235,13 @@ def emitGrammar
     (ntNames : Array String)
     (_eofIdx : Nat) : EmitM (Array (TSyntax `command)) := do
   let numT' := g'.numTerminals   -- includes augmented `$`
-  let numN' := g'.numNonterminals -- includes augmented `S'`
   let nP' := g'.prods.size
-  let eofTermIdx := numT' - 1     -- `$`
-  let mut semArms : Array (TSyntax `Lean.Parser.Term.matchAltExpr) := #[]
-  for i in [0:numT'] do
-    let ty := if i == eofTermIdx then "Unit" else termTy s i
-    let pat ← freshLeaf s!"Symbol.T ⟨{i}, _⟩"
-    let tyLeaf ← freshLeaf ty
-    semArms := semArms.push (← `(Lean.Parser.Term.matchAltExpr| | $pat => $tyLeaf))
-  for i in [0:numN'] do
-    let realStart := (s.ntIdx s.start).getD 0
-    let ty := if i == g'.start then nontermTy s ntNames realStart else nontermTy s ntNames i
-    let pat ← freshLeaf s!"Symbol.NT ⟨{i}, _⟩"
-    let tyLeaf ← freshLeaf ty
-    semArms := semArms.push (← `(Lean.Parser.Term.matchAltExpr| | $pat => $tyLeaf))
-  semArms := semArms.push (← `(Lean.Parser.Term.matchAltExpr| | _ => $(← freshLeaf "Unit")))
-  let semTId := mkIdent `semT'
-  let semTsigLeaf ← freshLeaf "Symbol Terminal NonTerminal → Type"
-  let semTDef ← `(command| abbrev $semTId : $semTsigLeaf $semArms:matchAlt*)
   let pairTy := "NonTerminal × List (Symbol Terminal NonTerminal)"
   let sigmaTy := s!"(pr : {pairTy}) × arrowsRight (semT' (.NT pr.1)) (pr.2.map semT')"
   let boxSigLeaf ← freshLeaf s!"(pr : {pairTy}) → (act : arrowsRight (semT' (.NT pr.1)) (pr.2.map semT')) → ({sigmaTy})"
   let boxBodyLeaf ← freshLeaf "fun pr act => ⟨pr, act⟩"
   let boxDef ← `(command| def $(mkIdent `box) : $boxSigLeaf := $boxBodyLeaf)
-  let mut cmds : Array (TSyntax `command) := #[semTDef, boxDef]
+  let mut cmds : Array (TSyntax `command) := #[boxDef]
   -- prodContents' match arms and the action defs.
   let eofTermIdx' := numT' - 1
   let elemTyOf := fun (e : Elem) =>
@@ -345,6 +376,13 @@ def emitActionValue (tables : Tables) (numT' : Nat) (st : Nat) : String := Id.ru
       ++ "\n      | _ => LookaheadAction.Fail"
     "Action.Lookahead (" ++ body ++ ")"
 
+/-- Number of bits needed to store every value in `0 … n`. -/
+def bitWidth (n : Nat) : Nat := Nat.log2 n + 1
+
+/-- Pack `fields` into one natural number, `width` bits per field, field 0 lowest. -/
+def packFields (width : Nat) (fields : List Nat) : Nat :=
+  (fields.zipIdx.foldl (fun acc (v, i) => acc ||| (v <<< (width * i))) 0)
+
 /-- Emit automaton tables and certificate annotations.
 
     LR state 0 is represented only by `Init`; state `k + 1` is represented by
@@ -375,31 +413,48 @@ def emitAutomaton (g' : IR.Grammar) (tables : Tables) (ann : Annotations)
   L := L.push ""
   L := L.push "abbrev St := State InitState NonInitState"
   L := L.push ""
-  -- `actionTable'` is emitted as proof-free `Nat` code arrays plus a generic decoder,
-  -- rather than one nested `match` arm per (state, terminal). Encoding per cell:
-  -- `0` = Fail, `2*p+1` = Reduce production p, `2*s+2` = Shift state s. The decoder
-  -- `decodeLA` reconstructs the dependent `LookaheadAction` (rebuilding the `Shift`
-  -- equality proof via `DecidableEq (Symbol …)`), so the refinement `native_decide`
-  -- evaluates an array index + a decidable equality per entry instead of constructing
-  -- a large dependent match with proof literals — the cost that made very large tables
-  -- take tens of minutes. The generic refinement proofs case on the `Action` return
-  -- type, not on the encoding, so they are unaffected.
+  -- `actionTable'`, `gotoTable'` and `items'` are packed `Nat` tables with generic
+  -- decoders instead of one `match` arm per cell. A row is one literal holding
+  -- fixed-width bit fields, so the elaborator sees one numeral per state. The
+  -- decoders rebuild the dependent values, including the `Shift`/goto equality
+  -- proofs. The tables are untrusted: the validators and refinement checks
+  -- evaluate the decoders, so a wrong table is rejected. On Cedar the old forms cost
+  -- 5 s (goto), 4 s (code arrays), 57 s (items) and 9 s (compiling `actionTable'`).
+  --
+  -- Action cell encoding: `0` = Fail, `2*p+1` = Reduce production p,
+  -- `2*s+2` = Shift state s. Field `numT'` of an action row is the state's
+  -- default reduction: `0` = none, `p+1` = reduce p.
   let actCode := fun (st : Nat) (t : Nat) =>
     match (tables.action.getD st #[]).getD t Act.error with
     | .shift j => 2 * (j - 1) + 2
     | .reduce p => 2 * p + 1
     | .error => 0
-  -- `laInit`/`laCodesNinit` are pure `Nat` code tables (no dependent content), so
-  -- they are emitted as real `Syntax` array literals — the verified-side analogue of
-  -- the executable backend's `actionData`.
-  let natId := mkIdent `Nat
-  let arrayId := mkIdent `Array
-  let codeRowTerm := fun (st : Nat) =>
-    let elems : Array (TSyntax `term) := (Array.range numT').map (fun t => Syntax.mkNumLit (toString (actCode st t)))
-    `(term| #[$elems,*])
-  let laInitDef ← `(command| def $(mkIdent `laInit) : $arrayId $natId := $(← codeRowTerm 0))
-  let rowTerms : Array (TSyntax `term) ← (Array.range numNI).mapM (fun k => codeRowTerm (k+1))
-  let laCodesDef ← `(command| def $(mkIdent `laCodesNinit) : $arrayId ($arrayId $natId) := #[$rowTerms,*])
+  let defCode := fun (st : Nat) =>
+    match tables.defaultReduce.getD st none with
+    | some p => p + 1
+    | none => 0
+  let actRowFields := fun (st : Nat) =>
+    (List.range numT').map (actCode st) ++ [defCode st]
+  let actWidth := bitWidth (((List.range numStates).map fun st =>
+    (actRowFields st).foldl max 0).foldl max 0)
+  let actRows := (List.range numStates).map fun st => packFields actWidth (actRowFields st)
+  let gotoCode := fun (st : Nat) (n : Nat) =>
+    match (tables.goto.getD st #[]).getD n none with
+    | some j => j  -- `j` is a Pager state number ≥ 1, i.e. target index `j-1`, plus one
+    | none => 0
+  let gotoRowFields := fun (st : Nat) => (List.range numN').map (gotoCode st)
+  let gotoWidth := bitWidth (((List.range numStates).map fun st =>
+    (gotoRowFields st).foldl max 0).foldl max 0)
+  let gotoRows := (List.range numStates).map fun st => packFields gotoWidth (gotoRowFields st)
+  let natArray := fun (name : String) (xs : List Nat) =>
+    s!"def {name} : Array Nat :=\n  #[" ++ ",\n    ".intercalate (xs.map toString) ++ "]"
+  L := L.push "/-- Read the `width`-bit field number `i` of a packed table row. -/"
+  L := L.push "def packedField (row width i : Nat) : Nat := (row >>> (width * i)) % (1 <<< width)"
+  L := L.push ""
+  L := L.push "def stateRow : St → Nat"
+  L := L.push "  | .Init _ => 0"
+  L := L.push "  | .Ninit s => s.val + 1"
+  L := L.push ""
   L := L.push s!"def decodeLA (term : Terminal) (code : Nat) : LookaheadAction NonInitState lastSymb' term :="
   L := L.push "  if code = 0 then LookaheadAction.Fail"
   L := L.push "  else if code % 2 = 1 then"
@@ -408,37 +463,27 @@ def emitAutomaton (g' : IR.Grammar) (tables : Tables) (ann : Annotations)
   L := L.push s!"    (if hs : (code - 2) / 2 < {numNI} then"
   L := L.push "      (if h : Symbol.T term = lastSymb' ⟨(code - 2) / 2, hs⟩ then LookaheadAction.Shift ⟨(code - 2) / 2, hs⟩ h else LookaheadAction.Fail)"
   L := L.push "     else LookaheadAction.Fail)"
-  L := L.push (← Quote.renderCmd laInitDef)
-  L := L.push (← Quote.renderCmd laCodesDef)
-  L := L.push "def actionTable' : St → Action NonInitState lastSymb'"
-  L := L.push "  | .Init _ => Action.Lookahead (fun term => decodeLA term (laInit.getD term.val 0))"
-  L := L.push "  | .Ninit s => match s with"
-  for k in [0:numNI] do
-    match tables.defaultReduce.getD (k+1) none with
-    | some p => L := L.push s!"    | ⟨{k}, _⟩ => Action.DefaultReduce ⟨{p}, of_decide_eq_true rfl⟩"
-    | none => L := L.push s!"    | ⟨{k}, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD {k} #[]).getD term.val 0))"
-  L := L.push "    | _ => Action.Lookahead (fun _ => LookaheadAction.Fail)"
   L := L.push ""
-  L := L.push "def gotoTable' : St → (nt : NonTerminal) → Option { s : NonInitState // Symbol.NT nt = lastSymb' s }"
-  let emitInitGotoRow := fun (stIdx : Nat) => Id.run do
-    let row := tables.goto.getD stIdx #[]
-    let mut arms : Array String := #[]
-    for n in [0:numN'] do
-      match row.getD n none with
-      | some j => arms := arms.push s!"    | ⟨{n}, _⟩ => some ⟨⟨{j-1}, of_decide_eq_true rfl⟩, by rfl⟩"
-      | none => pure ()
-    arms := arms.push "    | _ => none"
-    "\n".intercalate arms.toList
-  L := L.push "  | .Init _, nt => match nt with"
-  L := L.push (emitInitGotoRow 0)
-  L := L.push "  | .Ninit s, nt => match s, nt with"
-  for k in [0:numNI] do
-    let row := tables.goto.getD (k+1) #[]
-    for n in [0:numN'] do
-      match row.getD n none with
-      | some j => L := L.push s!"    | ⟨{k}, _⟩, ⟨{n}, _⟩ => some ⟨⟨{j-1}, of_decide_eq_true rfl⟩, by rfl⟩"
-      | none => pure ()
-  L := L.push "    | _, _ => none"
+  L := L.push (natArray "actionRows" actRows)
+  L := L.push ""
+  L := L.push "def actionTable' (s : St) : Action NonInitState lastSymb' :="
+  L := L.push "  let row := actionRows.getD (stateRow s) 0"
+  L := L.push s!"  match packedField row {actWidth} {numT'} with"
+  L := L.push s!"  | 0 => Action.Lookahead (fun term => decodeLA term (packedField row {actWidth} term.val))"
+  L := L.push s!"  | p + 1 =>"
+  L := L.push s!"    if hp : p < {g'.prods.size} then Action.DefaultReduce ⟨p, hp⟩"
+  L := L.push "    else Action.Lookahead (fun _ => LookaheadAction.Fail)"
+  L := L.push ""
+  L := L.push (natArray "gotoRows" gotoRows)
+  L := L.push ""
+  L := L.push "def gotoTable' (s : St) (nt : NonTerminal) :"
+  L := L.push "    Option { s : NonInitState // Symbol.NT nt = lastSymb' s } :="
+  L := L.push s!"  match packedField (gotoRows.getD (stateRow s) 0) {gotoWidth} nt.val with"
+  L := L.push "  | 0 => none"
+  L := L.push "  | c + 1 =>"
+  L := L.push s!"    if hs : c < {numNI} then"
+  L := L.push "      (if h : Symbol.NT nt = lastSymb' ⟨c, hs⟩ then some ⟨⟨c, hs⟩, h⟩ else none)"
+  L := L.push "    else none"
   L := L.push ""
   for (setL, k) in ann.stateSets.zipIdx do
     L := L.push s!"def stateSet{k} : St → Bool"
@@ -457,16 +502,33 @@ def emitAutomaton (g' : IR.Grammar) (tables : Tables) (ann : Annotations)
     let refs := listLit ((ann.pastStates[k+1]!).map (fun i => s!"stateSet{i}"))
     L := L.push s!"    | ⟨{k}, _⟩ => {refs}"
   L := L.push "    | _ => []"
-  L := L.push "def items' : St → List Item"
-  let emitItemList := fun (its : List AnnItem) =>
-    listLit (its.map (fun it =>
-      let looks := listLit (it.lookaheads.map (fun t => s!"⟨{t}, of_decide_eq_true rfl⟩"))
-      s!"⟨⟨{it.prod}, of_decide_eq_true rfl⟩, {it.dot}, {looks}⟩"))
-  L := L.push ("  | .Init _ => " ++ emitItemList (ann.items[0]!))
-  L := L.push "  | .Ninit s => match s with"
-  for k in [0:numNI] do
-    L := L.push (s!"    | ⟨{k}, _⟩ => " ++ emitItemList (ann.items[k+1]!))
-  L := L.push "    | _ => []"
+  -- Items: one literal per state. Field 0 is the item count; field `i+1` is item
+  -- `i`, laid out as `prod | dot << prodWidth | lookahead-bitmask << (prodWidth + dotWidth)`.
+  -- Every field uses the same stride. Lookaheads decode in ascending terminal order.
+  -- `itemTable` decodes each row once; the validators read `items'` many times.
+  let allItems := (List.range numStates).map fun st => ann.items[st]!
+  let prodWidth := bitWidth g'.prods.size
+  let dotWidth := bitWidth ((allItems.map fun its => (its.map (·.dot)).foldl max 0).foldl max 0)
+  let itemStride := max (prodWidth + dotWidth + numT')
+    (bitWidth ((allItems.map List.length).foldl max 0))
+  let packItem := fun (it : AnnItem) =>
+    it.prod ||| (it.dot <<< prodWidth) |||
+      ((it.lookaheads.foldl (fun m t => m ||| (1 <<< t)) 0) <<< (prodWidth + dotWidth))
+  let itemRows := allItems.map fun its =>
+    packFields itemStride (its.length :: its.map packItem)
+  L := L.push (natArray "itemRows" itemRows)
+  L := L.push ""
+  L := L.push "def decodeItems (row : Nat) : List Item :="
+  L := L.push s!"  (List.range (packedField row {itemStride} 0)).map fun i =>"
+  L := L.push s!"    let item := packedField row {itemStride} (i + 1)"
+  L := L.push s!"    ⟨Fin.ofNat {g'.prods.size} (item % (1 <<< {prodWidth})),"
+  L := L.push s!"     (item >>> {prodWidth}) % (1 <<< {dotWidth}),"
+  L := L.push s!"     (List.range {numT'}).filterMap fun t =>"
+  L := L.push s!"       if ((item >>> {prodWidth + dotWidth}) >>> t) % 2 = 1 then some (Fin.ofNat {numT'} t) else none⟩"
+  L := L.push ""
+  L := L.push "def itemTable : Array (List Item) := itemRows.map decodeItems"
+  L := L.push ""
+  L := L.push "def items' (s : St) : List Item := itemTable.getD (stateRow s) []"
   L := L.push "def nullableNt' : NonTerminal → Bool"
   L := L.push "  | nt => match nt with"
   for i in [0:numN'] do
@@ -513,27 +575,28 @@ def emitVerifiedGrammarViewAgreement (s : Surface) (eofTerminal numTerminals num
 /-- Emit the per-grammar obligations consumed by `Runtime.Refinement`. Structural
     table agreement is checked natively; semantic actions reduce definitionally. -/
 def emitRefinement (s : Surface) (g' : IR.Grammar) (execModule : String) : String := Id.run do
-  let e := collectTypes s
-  let numT := g'.numTerminals
-  let numN := g'.numNonterminals
   let numP := g'.prods.size
-  let eofIndex := numT - 1
   let realStart := (s.ntIdx s.start).getD 0
-  let mut encode := #[
-    s!"def refinementEncodeValue : (symbol : Symbol Terminal NonTerminal) → semT' symbol → {execModule}.VP"]
-  for i in [0:numT] do
-    let ty := if i == eofIndex then "Unit" else termTy s i
-    encode := encode.push s!"  | .T ⟨{i}, _⟩, value => (Runtime.Span.dummy, .{e.ctorFor ty} value)"
-  encode := encode.push s!"  | .T ⟨n + {numT}, h⟩, _ => absurd h (by omega)"
-  for i in [0:numN] do
-    let ty := if i == g'.start then nontermTy s s.ntNames realStart
-      else nontermTy s s.ntNames i
-    encode := encode.push s!"  | .NT ⟨{i}, _⟩, value => (Runtime.Span.dummy, .{e.ctorFor ty} value)"
-  encode := encode.push s!"  | .NT ⟨n + {numN}, h⟩, _ => absurd h (by omega)"
-
+  let encode := #[
+    s!"def refinementEncodeValue (s : Symbol Terminal NonTerminal) (v : semT' s) : {execModule}.VP :=",
+    "  (semTbl.getD (symIdx s) semDefault).2 v"]
   let valuesPattern := fun (length : Nat) =>
-    (List.range length).foldr (fun i rest => s!".cons x{i} ({rest})") ".nil"
-  let mut semantic := #[
+    (List.range length).foldr (fun _ rest => s!".cons _ ({rest})") ".nil"
+  -- One theorem per production so Lean checks them as parallel jobs;
+  -- `refinementSemanticAgrees` only dispatches. One theorem with an `rfl` arm per
+  -- production ran sequentially (Cedar: 11 s).
+  let mut semantic : Array String := #[]
+  for p in [0:numP] do
+    let prod := s!"(⟨{p}, of_decide_eq_true rfl⟩ : Production)"
+    semantic := semantic ++ #[
+      s!"theorem refinementSemanticAgrees{p} :",
+      s!"    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' {prod})),",
+      s!"      {execModule}.table.sem {p} (values.encode refinementEncodeValue).reverse =",
+      s!"        refinementEncodeValue (.NT (prodLhs' {prod}))",
+      s!"          (values.apply (prodAction' {prod}))",
+      s!"  | {valuesPattern (g'.prods[p]!).rhs.length} => rfl",
+      ""]
+  semantic := semantic ++ #[
     "theorem refinementSemanticAgrees :",
     "    ∀ (production : Production)",
     "      (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' production)),",
@@ -541,7 +604,7 @@ def emitRefinement (s : Surface) (g' : IR.Grammar) (execModule : String) : Strin
     "        refinementEncodeValue (.NT (prodLhs' production))",
     "          (values.apply (prodAction' production))"]
   for p in [0:numP] do
-    semantic := semantic.push s!"  | ⟨{p}, _⟩, {valuesPattern (g'.prods[p]!).rhs.length} => rfl"
+    semantic := semantic.push s!"  | ⟨{p}, _⟩, values => refinementSemanticAgrees{p} values"
   semantic := semantic.push s!"  | ⟨n + {numP}, h⟩, _ => absurd h (by omega)"
 
   let fixed := lines [
@@ -1011,6 +1074,7 @@ def generateVerifiedFrom (s : Surface) (prepared : PreparedGrammar)
   Quote.emitModule do
     let tokenCmds ← emitToken s eofIdx
     let tokenStr ← Quote.renderCmds tokenCmds
+    let semTableStr := emitSemTable s g' ntNames (executable.map (·.2))
     let grammarCmds ← emitGrammar s g' augProd ntNames eofIdx
     let grammarStr ← Quote.renderCmds grammarCmds
     let automatonStr ← emitAutomaton g' tables ann nul fst
@@ -1051,6 +1115,7 @@ def generateVerifiedFrom (s : Surface) (prepared : PreparedGrammar)
       s!"-- Non-initial states are Pager states 1 … {numStates-1} (state 0 is only ever `Init`).",
       s!"abbrev NonInitState := Fin {numStates - 1}",
       emitVerifiedGrammarView grammarView,
+      semTableStr,
       grammarStr,
       tokenStr,
       sigWiring,

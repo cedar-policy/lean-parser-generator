@@ -80,38 +80,85 @@ def StateHasFuture (state : AState) (prod : G.Production)
   ∃ item, item ∈ A.items state ∧ item.prod = prod ∧
     future = futureOfProd prod item.dotPos ∧ lookahead ∈ item.lookaheads
 
+/-- The lookaheads certified for `prod` with remaining suffix `future` in `state`,
+    gathered from all matching items. Computing it once per (item, target) lets the
+    checks below test a whole lookahead set against it, instead of rescanning the
+    target's items once per lookahead. -/
+def futureLookaheads (state : AState) (prod : G.Production)
+    (future : List GrammarSig.Sym) : List G.Terminal :=
+  ((A.items state).filter fun item =>
+    decide (item.prod = prod) && decide (future = futureOfProd prod item.dotPos)).flatMap
+      (·.lookaheads)
+
+/-- `futureLookaheads` is the lookahead relation of `StateHasFuture`. -/
+theorem mem_futureLookaheads {state : AState} {prod : G.Production}
+    {future : List GrammarSig.Sym} {lookahead : G.Terminal} :
+    lookahead ∈ futureLookaheads state prod future ↔
+      StateHasFuture state prod future lookahead := by
+  simp only [futureLookaheads, StateHasFuture, List.mem_flatMap, List.mem_filter,
+    Bool.and_eq_true, decide_eq_true_eq]
+  constructor
+  · rintro ⟨item, ⟨hitem, hprod, hfuture⟩, hlook⟩
+    exact ⟨item, hitem, hprod, hfuture, hlook⟩
+  · rintro ⟨item, hitem, hprod, hfuture, hlook⟩
+    exact ⟨item, ⟨hitem, hprod, hfuture⟩, hlook⟩
+
 /-- Executable lookup for `StateHasFuture`. -/
 def stateHasFutureCheck (state : AState) (prod : G.Production)
     (future : List GrammarSig.Sym) (lookahead : G.Terminal) : Bool :=
-  (A.items state).any fun item =>
-    decide (item.prod = prod) &&
-      (decide (future = futureOfProd prod item.dotPos) &&
-        decide (lookahead ∈ item.lookaheads))
+  decide (lookahead ∈ futureLookaheads state prod future)
 
 /-- The executable item lookup establishes the semantic item relation. -/
 theorem stateHasFuture_of_check {state : AState} {prod : G.Production}
     {future : List GrammarSig.Sym} {lookahead : G.Terminal}
     (h : stateHasFutureCheck state prod future lookahead = true) :
-    StateHasFuture state prod future lookahead := by
-  rcases List.any_eq_true.mp h with ⟨item, hmem, hi⟩
-  simp only [Bool.and_eq_true, decide_eq_true_eq] at hi
-  exact ⟨item, hmem, hi.1, hi.2.1, hi.2.2⟩
+    StateHasFuture state prod future lookahead :=
+  mem_futureLookaheads.mp (of_decide_eq_true h)
+
+/-- Every lookahead of `item` is among `known`. -/
+def lookaheadsSubset (item : Item) (known : List G.Terminal) : Bool :=
+  item.lookaheads.all fun lookahead => decide (lookahead ∈ known)
+
+theorem mem_of_lookaheadsSubset {item : Item} {known : List G.Terminal}
+    (h : lookaheadsSubset item known = true) {lookahead : G.Terminal}
+    (hlook : lookahead ∈ item.lookaheads) : lookahead ∈ known :=
+  of_decide_eq_true ((List.all_eq_true.mp h) lookahead hlook)
+
+/-- The failure case of an item-level check. It holds exactly when the item has no
+    lookaheads, so the item-level checks accept the same certificates as checking
+    each lookahead separately. -/
+def noLookaheads (item : Item) : Bool :=
+  item.lookaheads.all fun _ => false
+
+theorem false_of_noLookaheads {item : Item} (h : noLookaheads item = true)
+    {lookahead : G.Terminal} (hlook : lookahead ∈ item.lookaheads) : False := by
+  have := (List.all_eq_true.mp h) lookahead hlook
+  exact Bool.false_ne_true this
+
+/-- Iterate a Boolean condition over every certified item. Each clause quantifies
+    over the item's lookaheads itself, so per-item work is shared across them. -/
+def allItemsCheck (check : AState → Item → Bool) : Bool :=
+  (Finite.all (α := AState)).all fun state =>
+    (A.items state).all fun item => check state item
+
+/-- Extract one item result from `allItemsCheck`. -/
+theorem item_of_all_check {check : AState → Item → Bool}
+    (h : allItemsCheck check = true) (state : AState) (item : Item)
+    (hitem : item ∈ A.items state) : check state item = true := by
+  have hs := (List.all_eq_true.mp h) state (Finite.mem_all state)
+  exact (List.all_eq_true.mp hs) item hitem
 
 /-- Iterate a Boolean condition over every certified item and every one of its
-    lookaheads. Most completeness clauses have this shape. -/
+    lookaheads. -/
 def allItemLookaheadsCheck (check : AState → Item → G.Terminal → Bool) : Bool :=
-  (Finite.all (α := AState)).all fun state =>
-    (A.items state).all fun item =>
-      item.lookaheads.all fun lookahead => check state item lookahead
+  allItemsCheck fun state item => item.lookaheads.all fun lookahead => check state item lookahead
 
 /-- Extract one item/lookahead result from `allItemLookaheadsCheck`. -/
 theorem itemLookahead_of_all_check {check : AState → Item → G.Terminal → Bool}
     (h : allItemLookaheadsCheck check = true) (state : AState) (item : Item)
     (hitem : item ∈ A.items state) (lookahead : G.Terminal)
-    (hlook : lookahead ∈ item.lookaheads) : check state item lookahead = true := by
-  have hs := (List.all_eq_true.mp h) state (Finite.mem_all state)
-  have hi := (List.all_eq_true.mp hs) item hitem
-  exact (List.all_eq_true.mp hi) lookahead hlook
+    (hlook : lookahead ∈ item.lookaheads) : check state item lookahead = true :=
+  (List.all_eq_true.mp (item_of_all_check h state item hitem)) lookahead hlook
 
 /-! ### The eight completeness properties -/
 
@@ -155,8 +202,8 @@ def startFutureCheck : Bool :=
   (Finite.all (α := A.InitState)).all fun init =>
     (Finite.all (α := G.Production)).all fun prod =>
       if G.prodLhs prod = A.startNt init then
-        (Finite.all (α := G.Terminal)).all fun term =>
-          stateHasFutureCheck (.Init init) prod (G.prodRhsRev prod).reverse term
+        let known := futureLookaheads (.Init init) prod (G.prodRhsRev prod).reverse
+        (Finite.all (α := G.Terminal)).all fun term => decide (term ∈ known)
       else true
 
 /-- A terminal immediately after an item's dot is shifted to a state containing
@@ -175,22 +222,22 @@ def TerminalShift : Prop :=
           | _ => False
       | _ => True
 
-/-- Check terminal advancement for one concrete certified item/lookahead. -/
-def terminalShiftItemCheck (state : AState) (item : Item)
-    (lookahead : G.Terminal) : Bool :=
+/-- Check terminal advancement for one concrete certified item. -/
+def terminalShiftItemCheck (state : AState) (item : Item) : Bool :=
   match futureOfProd item.prod item.dotPos with
   | .T term :: rest =>
       match A.actionTable state with
       | .Lookahead actions =>
           match actions term with
-          | .Shift target _ => stateHasFutureCheck (.Ninit target) item.prod rest lookahead
-          | _ => false
-      | _ => false
+          | .Shift target _ =>
+              lookaheadsSubset item (futureLookaheads (.Ninit target) item.prod rest)
+          | _ => noLookaheads item
+      | _ => noLookaheads item
   | _ => true
 
 /-- The executable terminal-shift check. -/
 def terminalShiftCheck : Bool :=
-  allItemLookaheadsCheck terminalShiftItemCheck
+  allItemsCheck terminalShiftItemCheck
 
 /-- A completed item reduces its production for every certified lookahead. -/
 def EndReduce : Prop :=
@@ -237,19 +284,19 @@ def NonTerminalGoto : Prop :=
           | none => False
       | _ => True
 
-/-- Check nonterminal advancement for one concrete certified item/lookahead. -/
-def nonTerminalGotoItemCheck (state : AState) (item : Item)
-    (lookahead : G.Terminal) : Bool :=
+/-- Check nonterminal advancement for one concrete certified item. -/
+def nonTerminalGotoItemCheck (state : AState) (item : Item) : Bool :=
   match futureOfProd item.prod item.dotPos with
   | .NT nt :: rest =>
       match A.gotoTable state nt with
-      | some ⟨target, _⟩ => stateHasFutureCheck (.Ninit target) item.prod rest lookahead
-      | none => false
+      | some ⟨target, _⟩ =>
+          lookaheadsSubset item (futureLookaheads (.Ninit target) item.prod rest)
+      | none => noLookaheads item
   | _ => true
 
 /-- The executable nonterminal-goto check. -/
 def nonTerminalGotoCheck : Bool :=
-  allItemLookaheadsCheck nonTerminalGotoItemCheck
+  allItemsCheck nonTerminalGotoItemCheck
 
 /-- The start nonterminal has no goto from an initial state: reducing the
     augmented production is the interpreter's acceptance case. -/
@@ -284,26 +331,25 @@ def NonTerminalClosed : Prop :=
                 StateHasFuture state nextProd (futureOfProd nextProd 0) nextLookahead)
       | _ => True
 
-/-- Check closure for one concrete certified item/lookahead. -/
-def nonTerminalClosedItemCheck (state : AState) (item : Item)
-    (lookahead : G.Terminal) : Bool :=
+/-- Check closure for one concrete certified item. FIRST of the suffix is computed
+    once per item, and the lookaheads certified for each expansion once per
+    expansion, not once per lookahead and terminal. -/
+def nonTerminalClosedItemCheck (state : AState) (item : Item) : Bool :=
   match futureOfProd item.prod item.dotPos with
   | .NT nt :: rest =>
+      let firsts := (Finite.all (α := G.Terminal)).filter (firstWordCheck rest)
+      item.lookaheads.isEmpty ||
       (Finite.all (α := G.Production)).all fun nextProd =>
         if G.prodLhs nextProd = nt then
-          (if nullableWord rest then
-             stateHasFutureCheck state nextProd (futureOfProd nextProd 0) lookahead
-           else true) &&
-          (Finite.all (α := G.Terminal)).all fun nextLookahead =>
-            if firstWordCheck rest nextLookahead then
-              stateHasFutureCheck state nextProd (futureOfProd nextProd 0) nextLookahead
-            else true
+          let known := futureLookaheads state nextProd (futureOfProd nextProd 0)
+          (!nullableWord rest || lookaheadsSubset item known) &&
+          firsts.all fun nextLookahead => decide (nextLookahead ∈ known)
         else true
   | _ => true
 
 /-- The executable item-closure check. -/
 def nonTerminalClosedCheck : Bool :=
-  allItemLookaheadsCheck nonTerminalClosedItemCheck
+  allItemsCheck nonTerminalClosedItemCheck
 
 /-- The automaton certificate is complete: all eight completeness properties
     hold. -/
@@ -342,14 +388,14 @@ theorem startFuture_of_check (h : startFutureCheck = true) : StartFuture := by
   have hp := (List.all_eq_true.mp hi) prod (Finite.mem_all prod)
   rw [ite_eq_left hlhs] at hp
   have ht := (List.all_eq_true.mp hp) term (Finite.mem_all term)
-  exact stateHasFuture_of_check ht
+  exact mem_futureLookaheads.mp (of_decide_eq_true ht)
 
 theorem terminalShift_of_check (h : terminalShiftCheck = true) : TerminalShift := by
   intro state prod future lookahead hfuture
   rcases hfuture with ⟨item, hitem, hprod, hfuture, hlook⟩
   subst prod
   subst future
-  have hc := itemLookahead_of_all_check h state item hitem lookahead hlook
+  have hc := item_of_all_check h state item hitem
   cases hf : futureOfProd item.prod item.dotPos with
   | nil => trivial
   | cons symb rest =>
@@ -357,15 +403,20 @@ theorem terminalShift_of_check (h : terminalShiftCheck = true) : TerminalShift :
     | NT _ => trivial
     | T term =>
       cases ha : A.actionTable state with
-      | DefaultReduce _ => simp [terminalShiftItemCheck, hf, ha] at hc
+      | DefaultReduce _ =>
+        exact (false_of_noLookaheads (by simpa [terminalShiftItemCheck, hf, ha] using hc) hlook).elim
       | Lookahead actions =>
         cases hs : actions term with
         | Shift target proof =>
-          have htarget := stateHasFuture_of_check
-            (by simpa [terminalShiftItemCheck, hf, ha, hs] using hc)
+          have hsub : lookaheadsSubset item
+              (futureLookaheads (.Ninit target) item.prod rest) = true := by
+            simpa [terminalShiftItemCheck, hf, ha, hs] using hc
+          have htarget := mem_futureLookaheads.mp (mem_of_lookaheadsSubset hsub hlook)
           simpa only [hf, ha, hs] using htarget
-        | Reduce _ => simp [terminalShiftItemCheck, hf, ha, hs] at hc
-        | Fail => simp [terminalShiftItemCheck, hf, ha, hs] at hc
+        | Reduce _ =>
+          exact (false_of_noLookaheads (by simpa [terminalShiftItemCheck, hf, ha, hs] using hc) hlook).elim
+        | Fail =>
+          exact (false_of_noLookaheads (by simpa [terminalShiftItemCheck, hf, ha, hs] using hc) hlook).elim
 
 theorem endReduce_of_check (h : endReduceCheck = true) : EndReduce := by
   intro state prod future lookahead hfuture
@@ -395,7 +446,7 @@ theorem nonTerminalGoto_of_check (h : nonTerminalGotoCheck = true) : NonTerminal
   rcases hfuture with ⟨item, hitem, hprod, hfuture, hlook⟩
   subst prod
   subst future
-  have hc := itemLookahead_of_all_check h state item hitem lookahead hlook
+  have hc := item_of_all_check h state item hitem
   cases hf : futureOfProd item.prod item.dotPos with
   | nil => trivial
   | cons symb rest =>
@@ -403,10 +454,13 @@ theorem nonTerminalGoto_of_check (h : nonTerminalGotoCheck = true) : NonTerminal
     | T _ => trivial
     | NT nt =>
       cases hg : A.gotoTable state nt with
-      | none => simp [nonTerminalGotoItemCheck, hf, hg] at hc
+      | none =>
+        exact (false_of_noLookaheads (by simpa [nonTerminalGotoItemCheck, hf, hg] using hc) hlook).elim
       | some target =>
-        have htarget := stateHasFuture_of_check
-          (by simpa [nonTerminalGotoItemCheck, hf, hg] using hc)
+        have hsub : lookaheadsSubset item
+            (futureLookaheads (.Ninit target.1) item.prod rest) = true := by
+          simpa [nonTerminalGotoItemCheck, hf, hg] using hc
+        have htarget := mem_futureLookaheads.mp (mem_of_lookaheadsSubset hsub hlook)
         simpa only [hf, hg] using htarget
 
 theorem startGoto_of_check (h : startGotoCheck = true) : StartGoto := by
@@ -422,7 +476,7 @@ theorem nonTerminalClosed_of_check (h : nonTerminalClosedCheck = true) :
   rcases hfuture with ⟨item, hitem, hprod, hfuture, hlook⟩
   subst prod
   subst future
-  have hc := itemLookahead_of_all_check h state item hitem lookahead hlook
+  have hc := item_of_all_check h state item hitem
   cases hf : futureOfProd item.prod item.dotPos with
   | nil => trivial
   | cons symb rest =>
@@ -430,17 +484,19 @@ theorem nonTerminalClosed_of_check (h : nonTerminalClosedCheck = true) :
     | T _ => trivial
     | NT nt =>
       intro nextProd hlhs
-      have hc' : (Finite.all (α := G.Production)).all (fun nextProd =>
+      have hne : item.lookaheads.isEmpty = false := by
+        cases hl : item.lookaheads with
+        | nil => simp [hl] at hlook
+        | cons _ _ => rfl
+      have hc' : ((Finite.all (α := G.Production)).all fun nextProd =>
           if G.prodLhs nextProd = nt then
-            (if nullableWord rest then
-               stateHasFutureCheck state nextProd (futureOfProd nextProd 0) lookahead
-             else true) &&
-            (Finite.all (α := G.Terminal)).all (fun nextLookahead =>
-              if firstWordCheck rest nextLookahead then
-                stateHasFutureCheck state nextProd (futureOfProd nextProd 0) nextLookahead
-              else true)
+            (!nullableWord rest ||
+                lookaheadsSubset item
+                  (futureLookaheads state nextProd (futureOfProd nextProd 0))) &&
+              ((Finite.all (α := G.Terminal)).filter (firstWordCheck rest)).all fun nextLookahead =>
+                decide (nextLookahead ∈ futureLookaheads state nextProd (futureOfProd nextProd 0))
           else true) = true := by
-        simpa [nonTerminalClosedItemCheck, hf] using hc
+        simpa [nonTerminalClosedItemCheck, hf, hne] using hc
       have hp := (List.all_eq_true.mp hc') nextProd (Finite.mem_all nextProd)
       rw [ite_eq_left hlhs] at hp
       simp only [Bool.and_eq_true] at hp
@@ -450,12 +506,14 @@ theorem nonTerminalClosed_of_check (h : nonTerminalClosedCheck = true) :
         | false => simp
         | true =>
           simp only [ite_true]
-          rw [ite_eq_left (by simpa using hn)] at hnullable
-          exact stateHasFuture_of_check hnullable
+          rw [hn] at hnullable
+          exact mem_futureLookaheads.mp
+            (mem_of_lookaheadsSubset (by simpa using hnullable) hlook)
       · intro nextLookahead hfirstMem
-        have ht := (List.all_eq_true.mp hfirst) nextLookahead (Finite.mem_all nextLookahead)
-        rw [ite_eq_left (by simpa using hfirstMem)] at ht
-        exact stateHasFuture_of_check ht
+        have hmem : nextLookahead ∈ (Finite.all (α := G.Terminal)).filter (firstWordCheck rest) :=
+          List.mem_filter.mpr ⟨Finite.mem_all nextLookahead, hfirstMem⟩
+        exact mem_futureLookaheads.mp
+          (of_decide_eq_true ((List.all_eq_true.mp hfirst) nextLookahead hmem))
 
 /-- **Validator correctness.** Successful Boolean completeness validation
     establishes the semantic `Complete` certificate property. -/

@@ -1078,13 +1078,13 @@ and `VerifiedHeavy` roots the heavy one (c99), reached only through
 the separate `heavyParsers` regeneration target. Building either caches each
 module's `native_decide` certificates to `.olean`, so an unchanged rebuild is a
 Lake trace no-op (~0.9 s for Cedar) instead of the full re-check that
-`lake env lean test/<g>/<G>Verified.lean` pays every time (~230 s for Cedar).
+`lake env lean test/<g>/<G>Verified.lean` pays every time (~20 s for Cedar).
 Neither is a default target — plain `lake build` (which builds `VerifiedSmoke`
 only) must not pay the Cedar/c99 proof cost. Measured cold vs cached: Cedar
-234 s → 0.9 s.
+~20 s → 0.9 s.
 
 `c99` is split out for memory, not just time. `c99.C99Verified` checks
-cold in ~18 min but peaks near the machine's physical RAM. Build the heavy fixture
+cold in ~30 s on 32 cores (~18 min before the changes in the next subsection). Its peak memory has not been re-measured. Build the heavy fixture
 one worker at a time on a host with enough RAM (or swap):
 `LAKE_NUM_JOBS=1 lake build VerifiedHeavy`, or one module at a time.
 
@@ -1103,26 +1103,41 @@ instantiation, Pager construction, generated parsing, calculator/IMP/Cedar
 end-to-end behavior, rejection of a corrupted executable table, and expected
 elaboration failure for a mismatched semantic dispatcher.
 
-### Cold proof-compile cost: `Fin` bound proofs as terms, not tactics
-Two levers cut proof-module compile time; they stack. Caching (`VerifiedMid`/
-`VerifiedHeavy`, above) removes the *repeat* cost. The *cold* cost is dominated not by the
-`native_decide` certificates but by elaborating the dependent tables (`actionTable'`,
-`gotoTable'`) — enormous nested `match`-on-`Fin` functions. I measured this by
-compiling each `*Verified` file truncated to just the tables, all `native_decide`
-certificates removed: Cedar 186 s of its 231 s. So the
-tables, not the certificates, are the cold-compile cost.
+### Cold proof-compile cost
 
-The tables are full of `Fin` literals `⟨n, proof⟩`. The emitter originally discharged
-each bound with the `by decide` *tactic* — ~54 000 invocations in Cedar. Each pays the full tactic-elaboration overhead. Emitting the *proof term*
-`of_decide_eq_true rfl` instead (same proposition; `decide (n < bound)` still reduces
-to `true` and is kernel-checked, but no tactic framework spins up) cut CedarVerified
-cold from 231 s to 143 s (−38 %), exit 0, with the axiom budget unchanged
-(`#print axioms parser_sound` = `propext`, `Quot.sound`, and the safety + four
-refinement `native_decide` axioms — no new axioms, no `sorry`). The change is in
-`Emit/CodegenVerified.lean` (every emitted `Fin` literal); regeneration propagates it
-to all grammars. This is why splitting the certificates into parallel modules
-was *not* pursued: it would parallelize only the ~5 s certificate tail, while the
-term-proof change attacks the dominant table-elaboration cost directly.
+Caching (`VerifiedMid`/`VerifiedHeavy`, above) removes the repeat cost. The cold cost
+of `CedarVerified` fell from 386 s wall (503 s CPU, measured with the profiler on, which
+inflates it; the earlier figure was ~230 s) to about 18 s wall (38 s CPU) on a 32-core
+machine. C99 fell from the earlier ~18 min figure (not re-measured) to about 32 s. The
+costs below come from `lake lean <file> -- -Dtrace.profiler=true`, largest first:
+
+1. `refinementSemanticAgrees` (285 s of 386 s). Each production's `rfl` reduces
+   `refinementEncodeValue` at concrete symbols. That function was a `match` over all
+   105 symbols whose arms mention `semT'`, itself a 105-arm `match`. Lean's `whnf` of a
+   matcher is linear in its arms, and applying the matcher whnf'd `semT'` once per arm,
+   so one reduction cost 0.3 s (quadratic in the number of symbols). Now `semT'` and the encoder are projections
+   of one table `semTbl : List (Σ T : Type, T → VP)` indexed by `symIdx`, and
+   `List.getD` at a literal index reduces in time linear in the index with a small
+   constant (285 s → 11 s). The proof is also one theorem per production, so the
+   per-production jobs run in parallel (11 s → under 1 s).
+   When no executable module is paired, the encoder component is `fun _ => ()`.
+2. `items'` (57 s elaboration). About 50k `⟨n, of_decide_eq_true rfl⟩` literals. Items
+   are now one packed `Nat` literal per state (count, then `prod | dot | lookahead
+   bitmask` fields) decoded once into `itemTable`.
+3. `completeValidator` (17 s interpreted `native_decide` on Cedar, 82 s on C99).
+   `nonTerminalClosedItemCheck` recomputed FIRST of the suffix and rescanned the
+   target item list for every (item, lookahead, terminal). The checks in
+   `Runtime/Validator/Complete.lean` are now per item: `futureLookaheads` gathers the
+   lookaheads certified for a (state, production, suffix) once, and a lookahead set is
+   tested against it with `lookaheadsSubset`. Items with no lookaheads still pass
+   vacuously, as before. The linking theorems are re-proved.
+4. `actionTable'` (9 s to compile) and `gotoTable'` plus the code arrays (9 s to
+   elaborate). Rows are packed `Nat` literals with generic decoders (`packedField`,
+   `decodeLA`), which also rebuild the `Shift`/goto equality proofs.
+
+Emitting `Fin` bound proofs as `of_decide_eq_true rfl` instead of `by decide` is
+kept. The executable parser modules are byte-identical after these changes; I did not
+rerun the throughput benchmark.
 
 ## 11. Parser refinement against the dependent specification
 
@@ -1480,12 +1495,12 @@ this repository are the template for it:
   a clean checkout; a from-scratch checkout regenerates once before the first build.
 
 - **Cache the proofs; do not re-check them.** The dependent-specification modules
-  (`*Verified`) carry the expensive `native_decide` certificates — ~230 s for Cedar,
+  (`*Verified`) carry the expensive `native_decide` certificates — ~20 s for Cedar,
   minutes and multiple GB for the largest grammars. Re-running `lake env lean` on them every time is the
   wrong workflow. Instead they are rooted in a non-default `lean_lib`
   (`VerifiedMid`/`VerifiedHeavy` here) so Lake caches each certificate to `.olean`
   and an unchanged rebuild is a
-  trace no-op (Cedar 234 s → 0.9 s; §10). A downstream package should
+  trace no-op (Cedar ~20 s → 0.9 s; §10). A downstream package should
   likewise put its generated `*Verified` modules in a dedicated library so CI checks
   the proofs once per change, not once per invocation, and so the heavy grammars
   (Cedar/C99-scale) stay off the default build path while remaining one
@@ -1646,10 +1661,11 @@ the committed fixtures. This is `O(total element text)` and dropped c99's execut
 under 1 s.
 
 The verified backend
-(`Emit/CodegenVerified.lean`) puts its per-grammar semantic defs on `Syntax` — `semT'`, the named
-`semanticAction{n}`s, `prodContents'` and its projections, `tokenName'`/`tokenTerm'`/`tokenSem'`, and
-the `Nat` code tables `laInit`/`laCodesNinit` — with dependent patterns, signatures, and bodies as
-leaves. Its dependent `Automaton` match tables and the fixed refinement/validation proof scripts stay
+(`Emit/CodegenVerified.lean`) puts its per-grammar semantic defs on `Syntax` — the named
+`semanticAction{n}`s, `prodContents'` and its projections, and `tokenName'`/`tokenTerm'`/`tokenSem'`
+— with dependent patterns, signatures, and bodies as leaves. The symbol-type table `semTbl`/`semT'` and
+the packed `Nat` tables (`actionRows`, `gotoRows`, `itemRows`) with their decoders are raw text. Its
+`Automaton` tables and the fixed refinement/validation proof scripts stay
 raw text: proof-carrying dependent Lean whose content is nearly all opaque, so routing it through
 `Syntax` would make everything a leaf and check nothing (the same reason the executable `flat` and
 `redvMatches` are raw). The stopping point is where `Syntax` stops adding a real check.

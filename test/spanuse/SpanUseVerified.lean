@@ -84,14 +84,22 @@ def verifiedGrammarView : Runtime.VerifiedGrammarView :=
     augmentedNonterminal := 1
     augmentedProduction := 2 }
 
-abbrev semT' : Symbol Terminal NonTerminal → Type
-  | Symbol.T ⟨0, _⟩ => Unit
-  | Symbol.T ⟨1, _⟩ => Nat
-  | Symbol.T ⟨2, _⟩ => Unit
-  | Symbol.T ⟨3, _⟩ => Unit
-  | Symbol.NT ⟨0, _⟩ => Nat
-  | Symbol.NT ⟨1, _⟩ => Nat
-  | _ => Unit
+def semTbl : List (Σ T : Type, T → SpanUseParser.VP) := [
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Nat : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩,
+  ⟨(Nat : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩,
+  ⟨(Nat : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩]
+
+def semDefault : Σ T : Type, T → SpanUseParser.VP := ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩
+
+def symIdx : Symbol Terminal NonTerminal → Nat
+  | .T t => t.val
+  | .NT n => 4 + n.val
+
+abbrev semT' (s : Symbol Terminal NonTerminal) : Type :=
+  (semTbl.getD (symIdx s) semDefault).1
 
 def box : (pr : NonTerminal × List (Symbol Terminal NonTerminal)) → (act : arrowsRight (semT' (.NT pr.1)) (pr.2.map semT')) → ((pr : NonTerminal × List (Symbol Terminal NonTerminal)) × arrowsRight (semT' (.NT pr.1)) (pr.2.map semT')) :=
   fun pr act => ⟨pr, act⟩
@@ -162,6 +170,13 @@ def startNt' : InitState → NonTerminal
 
 abbrev St := State InitState NonInitState
 
+/-- Read the `width`-bit field number `i` of a packed table row. -/
+def packedField (row width i : Nat) : Nat := (row >>> (width * i)) % (1 <<< width)
+
+def stateRow : St → Nat
+  | .Init _ => 0
+  | .Ninit s => s.val + 1
+
 def decodeLA (term : Terminal) (code : Nat) : LookaheadAction NonInitState lastSymb' term :=
   if code = 0 then LookaheadAction.Fail
   else if code % 2 = 1 then
@@ -170,25 +185,37 @@ def decodeLA (term : Terminal) (code : Nat) : LookaheadAction NonInitState lastS
     (if hs : (code - 2) / 2 < 4 then
       (if h : Symbol.T term = lastSymb' ⟨(code - 2) / 2, hs⟩ then LookaheadAction.Shift ⟨(code - 2) / 2, hs⟩ h else LookaheadAction.Fail)
      else LookaheadAction.Fail)
-def laInit : Array Nat :=
-  #[0, 2, 0, 0]
-def laCodesNinit : Array (Array Nat) :=
-  #[#[6, 0, 0, 1], #[0, 0, 0, 8], #[0, 0, 0, 3], #[5, 5, 5, 5]]
-def actionTable' : St → Action NonInitState lastSymb'
-  | .Init _ => Action.Lookahead (fun term => decodeLA term (laInit.getD term.val 0))
-  | .Ninit s => match s with
-    | ⟨0, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 0 #[]).getD term.val 0))
-    | ⟨1, _⟩ => Action.Lookahead (fun term => decodeLA term ((laCodesNinit.getD 1 #[]).getD term.val 0))
-    | ⟨2, _⟩ => Action.DefaultReduce ⟨1, of_decide_eq_true rfl⟩
-    | ⟨3, _⟩ => Action.DefaultReduce ⟨2, of_decide_eq_true rfl⟩
-    | _ => Action.Lookahead (fun _ => LookaheadAction.Fail)
 
-def gotoTable' : St → (nt : NonTerminal) → Option { s : NonInitState // Symbol.NT nt = lastSymb' s }
-  | .Init _, nt => match nt with
-    | ⟨0, _⟩ => some ⟨⟨1, of_decide_eq_true rfl⟩, by rfl⟩
-    | _ => none
-  | .Ninit s, nt => match s, nt with
-    | _, _ => none
+def actionRows : Array Nat :=
+  #[32,
+    4102,
+    32768,
+    143360,
+    218453]
+
+def actionTable' (s : St) : Action NonInitState lastSymb' :=
+  let row := actionRows.getD (stateRow s) 0
+  match packedField row 4 4 with
+  | 0 => Action.Lookahead (fun term => decodeLA term (packedField row 4 term.val))
+  | p + 1 =>
+    if hp : p < 3 then Action.DefaultReduce ⟨p, hp⟩
+    else Action.Lookahead (fun _ => LookaheadAction.Fail)
+
+def gotoRows : Array Nat :=
+  #[2,
+    0,
+    0,
+    0,
+    0]
+
+def gotoTable' (s : St) (nt : NonTerminal) :
+    Option { s : NonInitState // Symbol.NT nt = lastSymb' s } :=
+  match packedField (gotoRows.getD (stateRow s) 0) 2 nt.val with
+  | 0 => none
+  | c + 1 =>
+    if hs : c < 4 then
+      (if h : Symbol.NT nt = lastSymb' ⟨c, hs⟩ then some ⟨⟨c, hs⟩, h⟩ else none)
+    else none
 
 def stateSet0 : St → Bool
   | s => (match s with | .Init _ => true | _ => false)
@@ -210,14 +237,24 @@ def pastStates' : NonInitState → List (St → Bool)
     | ⟨2, _⟩ => [stateSet1, stateSet0]
     | ⟨3, _⟩ => [stateSet2, stateSet0]
     | _ => []
-def items' : St → List Item
-  | .Init _ => [⟨⟨0, of_decide_eq_true rfl⟩, 0, [⟨3, of_decide_eq_true rfl⟩]⟩, ⟨⟨1, of_decide_eq_true rfl⟩, 0, [⟨3, of_decide_eq_true rfl⟩]⟩, ⟨⟨2, of_decide_eq_true rfl⟩, 0, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩]⟩]
-  | .Ninit s => match s with
-    | ⟨0, _⟩ => [⟨⟨0, of_decide_eq_true rfl⟩, 1, [⟨3, of_decide_eq_true rfl⟩]⟩, ⟨⟨1, of_decide_eq_true rfl⟩, 1, [⟨3, of_decide_eq_true rfl⟩]⟩]
-    | ⟨1, _⟩ => [⟨⟨2, of_decide_eq_true rfl⟩, 1, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩]⟩]
-    | ⟨2, _⟩ => [⟨⟨1, of_decide_eq_true rfl⟩, 2, [⟨3, of_decide_eq_true rfl⟩]⟩]
-    | ⟨3, _⟩ => [⟨⟨2, of_decide_eq_true rfl⟩, 2, [⟨0, of_decide_eq_true rfl⟩, ⟨1, of_decide_eq_true rfl⟩, ⟨2, of_decide_eq_true rfl⟩, ⟨3, of_decide_eq_true rfl⟩]⟩]
-    | _ => []
+def itemRows : Array Nat :=
+  #[4068573187,
+    8750082,
+    62977,
+    35073,
+    64001]
+
+def decodeItems (row : Nat) : List Item :=
+  (List.range (packedField row 8 0)).map fun i =>
+    let item := packedField row 8 (i + 1)
+    ⟨Fin.ofNat 3 (item % (1 <<< 2)),
+     (item >>> 2) % (1 <<< 2),
+     (List.range 4).filterMap fun t =>
+       if ((item >>> 4) >>> t) % 2 = 1 then some (Fin.ofNat 4 t) else none⟩
+
+def itemTable : Array (List Item) := itemRows.map decodeItems
+
+def items' (s : St) : List Item := itemTable.getD (stateRow s) []
 def nullableNt' : NonTerminal → Bool
   | nt => match nt with
     | ⟨0, _⟩ => false
@@ -278,15 +315,29 @@ def parse (input : List Tok) (logNSteps : Nat := 40) : Option Nat :=
   | .Parsed r _ => some r
   | _ => none
 
-def refinementEncodeValue : (symbol : Symbol Terminal NonTerminal) → semT' symbol → SpanUseParser.VP
-  | .T ⟨0, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨1, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .T ⟨2, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨3, _⟩, value => (Runtime.Span.dummy, .unit value)
-  | .T ⟨n + 4, h⟩, _ => absurd h (by omega)
-  | .NT ⟨0, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .NT ⟨1, _⟩, value => (Runtime.Span.dummy, .v0 value)
-  | .NT ⟨n + 2, h⟩, _ => absurd h (by omega)
+def refinementEncodeValue (s : Symbol Terminal NonTerminal) (v : semT' s) : SpanUseParser.VP :=
+  (semTbl.getD (symIdx s) semDefault).2 v
+
+theorem refinementSemanticAgrees0 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨0, of_decide_eq_true rfl⟩ : Production))),
+      SpanUseParser.table.sem 0 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨0, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨0, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.nil) => rfl
+
+theorem refinementSemanticAgrees1 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨1, of_decide_eq_true rfl⟩ : Production))),
+      SpanUseParser.table.sem 1 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨1, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨1, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
+
+theorem refinementSemanticAgrees2 :
+    ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨2, of_decide_eq_true rfl⟩ : Production))),
+      SpanUseParser.table.sem 2 (values.encode refinementEncodeValue).reverse =
+        refinementEncodeValue (.NT (prodLhs' (⟨2, of_decide_eq_true rfl⟩ : Production)))
+          (values.apply (prodAction' (⟨2, of_decide_eq_true rfl⟩ : Production)))
+  | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees :
     ∀ (production : Production)
@@ -294,9 +345,9 @@ theorem refinementSemanticAgrees :
       SpanUseParser.table.sem production.val (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' production))
           (values.apply (prodAction' production))
-  | ⟨0, _⟩, .cons x0 (.nil) => rfl
-  | ⟨1, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
-  | ⟨2, _⟩, .cons x0 (.cons x1 (.nil)) => rfl
+  | ⟨0, _⟩, values => refinementSemanticAgrees0 values
+  | ⟨1, _⟩, values => refinementSemanticAgrees1 values
+  | ⟨2, _⟩, values => refinementSemanticAgrees2 values
   | ⟨n + 3, h⟩, _ => absurd h (by omega)
 
 def refinementStateIndex : St → Nat
