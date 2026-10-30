@@ -46,3 +46,9 @@ jobs:
         run: lake exe lig-bootstrap-test
       - name: Cedar entities corpus test
         run: lake exe cedarentities-corpus-test
+      # The Rust backend: the Cedar crate (lexer, trace parser, and the Rust actions of
+      # cedar.lig) and the rustactions fixture must compile, and the fixture must parse its samples.
+      - name: Build the Cedar Rust crate
+        run: cargo build --release --manifest-path test/cedar/rust/Cargo.toml
+      - name: Rust actions fixture
+        run: cargo run --release --manifest-path test/rustactions/rust/Cargo.toml -- test/rustactions/samples/*.rast

@@ -104,234 +104,369 @@ def stripStringQuotes (value : String) : String :=
 %%
 
 -- Policies := { Policy }
-policies :: Policies
+policies :: Policies !!rust{crate::cst::Policies}
   | ps=list(policy)                              { Policies.mk ps }
+      !!rust{ crate::cst::Policies { policies: ps } }
 -- Annotation := '@' AnyIdent ('(' Str ')')?
-annotation :: Annotation
+annotation :: Annotation !!rust{crate::cst::Annotation}
   | AT key=any_ident                            { Annotation.mk key none }
+      !!rust{ crate::cst::Annotation { key: key, value: Box::new(None) } }
   | AT key=any_ident LPAREN value=str_lit RPAREN { Annotation.mk key (some value) }
+      !!rust{ crate::cst::Annotation { key: key, value: Box::new(Some(value)) } }
 
 -- Policy := Annotation* AnyIdent '(' Comma<VariableDef> ')' Cond* ';'
-policy :: Policy
+policy :: Policy !!rust{crate::cst::Policy}
   | annotations=list(annotation) effect=any_ident LPAREN variables=variable_def_list RPAREN conds=list(cond) SEMICOLON
       { Policy.policy (PolicyImpl.mk annotations effect variables conds) }
+      !!rust{ crate::cst::Policy::Policy(crate::cst::PolicyImpl { annotations: annotations, effect: effect, variables: variables, conds: conds }) }
 
 -- Comma<VariableDef>, including an optional trailing comma
-variable_def_list :: List VariableDef
+variable_def_list :: List VariableDef !!rust{std::collections::VecDeque<crate::cst::VariableDef>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | v=variable_def rest=variable_def_comma_tail { v :: rest }
-variable_def_comma_tail :: List VariableDef
+      !!rust{ crate::cst::cons(v, rest) }
+variable_def_comma_tail :: List VariableDef !!rust{std::collections::VecDeque<crate::cst::VariableDef>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA                                       { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA v=variable_def rest=variable_def_comma_tail { v :: rest }
+      !!rust{ crate::cst::cons(v, rest) }
 
 -- VariableDef := AnyIdent (':' Name)? ('is' Add)? (RelOp Expr)?
-variable_def :: VariableDef
+variable_def :: VariableDef !!rust{crate::cst::VariableDef}
   | varName=any_ident unused=opt_unused_type entity=opt_entity_type ineq=opt_ineq
       { VariableDef.mk varName unused entity ineq }
-opt_unused_type :: Option Name
+      !!rust{ crate::cst::VariableDef { variableName: Box::new(varName), unusedTypeName: Box::new(unused), entityType: Box::new(entity), ineq: ineq } }
+opt_unused_type :: Option Name !!rust{Option<crate::cst::Name>}
   |                                             { none }
+      !!rust{ None }
   | COLON name=name                             { some name }
-opt_entity_type :: Option Add
+      !!rust{ Some(name) }
+opt_entity_type :: Option Add !!rust{Option<crate::cst::Add>}
   |                                             { none }
+      !!rust{ None }
   | IS entity=add                              { some entity }
-opt_ineq :: Option (RelOp × Expr)
+      !!rust{ Some(entity) }
+opt_ineq :: Option (RelOp × Expr) !!rust{Option<(crate::cst::RelOp, crate::cst::Expr)>}
   |                                             { none }
+      !!rust{ None }
   | op=rel_op expression=expr                  { some (op, expression) }
+      !!rust{ Some((op, expression)) }
 
 -- Cond := AnyIdent '{' Expr '}' (empty/recovered bodies intentionally omitted)
-cond :: Cond
+cond :: Cond !!rust{crate::cst::Cond}
   | kind=any_ident LBRACE expression=expr RBRACE { Cond.mk kind expression }
+      !!rust{ crate::cst::Cond { cond: kind, expr: expression } }
 
 -- Expr := Or | 'if' Expr 'then' Expr 'else' Expr
-expr :: Expr
+expr :: Expr !!rust{crate::cst::Expr}
   | value=or_expr                               { Expr.expr (ExprImpl.mk (ExprData.or value)) }
+      !!rust{ crate::cst::Expr::Expr(Box::new(crate::cst::ExprImpl::Mk(Box::new(crate::cst::ExprData::Or(Box::new(value)))))) }
   | IF condition=expr THEN thenExpr=expr ELSE elseExpr=expr
       { Expr.expr (ExprImpl.mk (ExprData.ifThenElse condition thenExpr elseExpr)) }
+      !!rust{ crate::cst::Expr::Expr(Box::new(crate::cst::ExprImpl::Mk(Box::new(crate::cst::ExprData::IfThenElse(Box::new(condition), Box::new(thenExpr), Box::new(elseExpr)))))) }
 
 -- Or := And ('||' And)*
-or_expr :: Or
+or_expr :: Or !!rust{crate::cst::Or}
   | initial=and_expr extended=or_tail           { Or.mk initial extended }
-or_tail :: List And
+      !!rust{ crate::cst::Or::Mk(Box::new(initial), extended) }
+or_tail :: List And !!rust{std::collections::VecDeque<crate::cst::And>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | OR next=and_expr rest=or_tail               { next :: rest }
+      !!rust{ crate::cst::cons(next, rest) }
 
 -- And := Relation ('&&' Relation)*
-and_expr :: And
+and_expr :: And !!rust{crate::cst::And}
   | initial=relation extended=and_tail          { And.mk initial extended }
-and_tail :: List Relation
+      !!rust{ crate::cst::And::Mk(Box::new(initial), extended) }
+and_tail :: List Relation !!rust{std::collections::VecDeque<crate::cst::Relation>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | AND next=relation rest=and_tail             { next :: rest }
+      !!rust{ crate::cst::cons(next, rest) }
 
 -- Relation := Add (RelOp Add)* | Add has Add | Add like Add | Add is Add (in Add)?
-relation :: Relation
+relation :: Relation !!rust{crate::cst::Relation}
   | target=add HAS field=add                    { Relation.has target field }
+      !!rust{ crate::cst::Relation::Has(Box::new(target), Box::new(field)) }
   | target=add HAS IF access=list(mem_access)    { Relation.has target (Cedar.Add.fromIdent .ifIdent access) }
+      !!rust{ crate::cst::Relation::Has(Box::new(target), Box::new(crate::cst::add_from_ident(crate::cst::Ident::IfIdent, access))) }
   | target=add LIKE pattern=add                 { Relation.like target pattern }
+      !!rust{ crate::cst::Relation::Like(Box::new(target), Box::new(pattern)) }
   | target=add IS entityType=add inEntity=opt_in_add
       { Relation.isIn target entityType inEntity }
+      !!rust{ crate::cst::Relation::IsIn(Box::new(target), Box::new(entityType), Box::new(inEntity)) }
   | initial=add extended=relation_tail          { Relation.common initial extended }
-relation_tail :: List (RelOp × Add)
+      !!rust{ crate::cst::Relation::Common(Box::new(initial), extended) }
+relation_tail :: List (RelOp × Add) !!rust{std::collections::VecDeque<(crate::cst::RelOp, crate::cst::Add)>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | op=rel_op next=add rest=relation_tail       { (op, next) :: rest }
-opt_in_add :: Option Add
+      !!rust{ crate::cst::cons((op, next), rest) }
+opt_in_add :: Option Add !!rust{Option<crate::cst::Add>}
   |                                             { none }
+      !!rust{ None }
   | IN entity=add                               { some entity }
+      !!rust{ Some(entity) }
 
-rel_op :: RelOp
+rel_op :: RelOp !!rust{crate::cst::RelOp}
   | LT                                          { .less }
+      !!rust{ crate::cst::RelOp::Less }
   | LEQ                                         { .lessEq }
+      !!rust{ crate::cst::RelOp::LessEq }
   | GEQ                                         { .greaterEq }
+      !!rust{ crate::cst::RelOp::GreaterEq }
   | GT                                          { .greater }
+      !!rust{ crate::cst::RelOp::Greater }
   | NEQ                                         { .notEq }
+      !!rust{ crate::cst::RelOp::NotEq }
   | EQ                                          { .eq }
+      !!rust{ crate::cst::RelOp::Eq }
   | IN                                          { .inOp }
+      !!rust{ crate::cst::RelOp::InOp }
   | SINGLE_EQ                                   { .invalidSingleEq }
+      !!rust{ crate::cst::RelOp::InvalidSingleEq }
 
-add_op :: AddOp
+add_op :: AddOp !!rust{crate::cst::AddOp}
   | PLUS                                        { .plus }
+      !!rust{ crate::cst::AddOp::Plus }
   | MINUS                                       { .minus }
-mult_op :: MultOp
+      !!rust{ crate::cst::AddOp::Minus }
+mult_op :: MultOp !!rust{crate::cst::MultOp}
   | STAR                                        { .times }
+      !!rust{ crate::cst::MultOp::Times }
   | SLASH                                       { .divide }
+      !!rust{ crate::cst::MultOp::Divide }
   | PERCENT                                     { .mod }
+      !!rust{ crate::cst::MultOp::Mod }
 
 -- Add := Mult (AddOp Mult)*
-add :: Add
+add :: Add !!rust{crate::cst::Add}
   | initial=mult extended=add_tail              { Cedar.Add.mk initial extended }
-add_tail :: List (AddOp × Mult)
+      !!rust{ crate::cst::Add::Mk(Box::new(initial), extended) }
+add_tail :: List (AddOp × Mult) !!rust{std::collections::VecDeque<(crate::cst::AddOp, crate::cst::Mult)>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | op=add_op next=mult rest=add_tail           { (op, next) :: rest }
+      !!rust{ crate::cst::cons((op, next), rest) }
 
 -- Mult := Unary (MultOp Unary)*
-mult :: Mult
+mult :: Mult !!rust{crate::cst::Mult}
   | initial=unary extended=mult_tail            { Mult.mk initial extended }
-mult_tail :: List (MultOp × Unary)
+      !!rust{ crate::cst::Mult::Mk(Box::new(initial), extended) }
+mult_tail :: List (MultOp × Unary) !!rust{std::collections::VecDeque<(crate::cst::MultOp, crate::cst::Unary)>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | op=mult_op next=unary rest=mult_tail        { (op, next) :: rest }
+      !!rust{ crate::cst::cons((op, next), rest) }
 
 -- Unary := zero to four identical prefixes, or five-or-more overflow
-unary :: Unary
+unary :: Unary !!rust{crate::cst::Unary}
   | item=member                                 { Unary.mk none item }
+      !!rust{ crate::cst::Unary::Mk(None, Box::new(item)) }
   | BANG item=member                            { Unary.mk (some (.bang 1)) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::Bang(1u64)), Box::new(item)) }
   | BANG BANG item=member                       { Unary.mk (some (.bang 2)) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::Bang(2u64)), Box::new(item)) }
   | BANG BANG BANG item=member                  { Unary.mk (some (.bang 3)) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::Bang(3u64)), Box::new(item)) }
   | BANG BANG BANG BANG item=member             { Unary.mk (some (.bang 4)) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::Bang(4u64)), Box::new(item)) }
   | BANG BANG BANG BANG _bang=bang_more item=member { Unary.mk (some .overBang) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::OverBang), Box::new(item)) }
   | MINUS item=member                           { Unary.mk (some (.dash 1)) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::Dash(1u64)), Box::new(item)) }
   | MINUS MINUS item=member                     { Unary.mk (some (.dash 2)) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::Dash(2u64)), Box::new(item)) }
   | MINUS MINUS MINUS item=member               { Unary.mk (some (.dash 3)) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::Dash(3u64)), Box::new(item)) }
   | MINUS MINUS MINUS MINUS item=member         { Unary.mk (some (.dash 4)) item }
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::Dash(4u64)), Box::new(item)) }
   | MINUS MINUS MINUS MINUS _dash=dash_more item=member { Unary.mk (some .overDash) item }
-bang_more :: Unit
+      !!rust{ crate::cst::Unary::Mk(Some(crate::cst::NegOp::OverDash), Box::new(item)) }
+bang_more :: Unit !!rust{()}
   | BANG                                        { () }
+      !!rust{ () }
   | BANG _rest=bang_more                        { () }
-dash_more :: Unit
+      !!rust{ () }
+dash_more :: Unit !!rust{()}
   | MINUS                                       { () }
+      !!rust{ () }
   | MINUS _rest=dash_more                       { () }
+      !!rust{ () }
 
 -- Member := Primary MemAccess*
-member :: Member
+member :: Member !!rust{crate::cst::Member}
   | item=primary access=list(mem_access)         { Member.mk item access }
-mem_access :: MemAccess
+      !!rust{ crate::cst::Member::Mk(Box::new(item), access) }
+mem_access :: MemAccess !!rust{crate::cst::MemAccess}
   | DOT field=any_ident                         { MemAccess.field field }
+      !!rust{ crate::cst::MemAccess::Field(field) }
   | LPAREN args=expr_list RPAREN                { MemAccess.call args }
+      !!rust{ crate::cst::MemAccess::Call(args) }
   | LBRACKET index=expr RBRACKET                { MemAccess.index index }
+      !!rust{ crate::cst::MemAccess::Index(index) }
 
 -- Primary forms
-primary :: Primary
+primary :: Primary !!rust{crate::cst::Primary}
   | literal=literal                             { Primary.literal literal }
+      !!rust{ crate::cst::Primary::Literal(literal) }
   | value=primary_name_or_ref                   { value }
+      !!rust{ value }
   | PRINCIPAL_SLOT                              { Primary.slot .principal }
+      !!rust{ crate::cst::Primary::Slot(crate::cst::Slot::Principal) }
   | RESOURCE_SLOT                               { Primary.slot .resource }
+      !!rust{ crate::cst::Primary::Slot(crate::cst::Slot::Resource) }
   | slot=OTHER_SLOT                             { Primary.slot (.other slot) }
+      !!rust{ crate::cst::Primary::Slot(crate::cst::Slot::Other(slot.to_string())) }
   | LPAREN expression=expr RPAREN               { Primary.expr expression }
+      !!rust{ crate::cst::Primary::Expr(Box::new(expression)) }
   | LBRACKET elements=expr_list RBRACKET        { Primary.exprList elements }
+      !!rust{ crate::cst::Primary::ExprList(elements) }
   | LBRACE fields=rec_init_list RBRACE          { Primary.record fields }
+      !!rust{ crate::cst::Primary::Record(fields) }
 
 -- Comma<Expr>, including an optional trailing comma
-expr_list :: List Expr
+expr_list :: List Expr !!rust{std::collections::VecDeque<crate::cst::Expr>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | expression=expr rest=expr_comma_tail        { expression :: rest }
-expr_comma_tail :: List Expr
+      !!rust{ crate::cst::cons(expression, rest) }
+expr_comma_tail :: List Expr !!rust{std::collections::VecDeque<crate::cst::Expr>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA                                       { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA expression=expr rest=expr_comma_tail  { expression :: rest }
+      !!rust{ crate::cst::cons(expression, rest) }
 
 -- Comma<RecInit>, including an optional trailing comma
-rec_init_list :: List RecInit
+rec_init_list :: List RecInit !!rust{std::collections::VecDeque<crate::cst::RecInit>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | init=rec_init rest=rec_init_comma_tail      { init :: rest }
-rec_init_comma_tail :: List RecInit
+      !!rust{ crate::cst::cons(init, rest) }
+rec_init_comma_tail :: List RecInit !!rust{std::collections::VecDeque<crate::cst::RecInit>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA                                       { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA init=rec_init rest=rec_init_comma_tail { init :: rest }
-rec_init :: RecInit
+      !!rust{ crate::cst::cons(init, rest) }
+rec_init :: RecInit !!rust{crate::cst::RecInit}
   | IF COLON value=expr                         { RecInit.mk (Expr.fromIdent .ifIdent) value }
+      !!rust{ crate::cst::RecInit::Mk(crate::cst::expr_from_ident(crate::cst::Ident::IfIdent), value) }
   | key=expr COLON value=expr                   { RecInit.mk key value }
+      !!rust{ crate::cst::RecInit::Mk(key, value) }
 
 -- Name/Ref are left-factored to preserve LALRPOP NameInline's LR(1) behavior.
-primary_name_or_ref :: Primary
+primary_name_or_ref :: Primary !!rust{crate::cst::Primary}
   | first=common_ident                          { Primary.name (Name.mk [] first) }
+      !!rust{ crate::cst::Primary::Name(crate::cst::Name { path: std::collections::VecDeque::new(), name: first }) }
   | first=common_ident COLONCOLON tail=path_tail { tail [first] }
+      !!rust{ tail(std::collections::VecDeque::from([first])) }
   | first=special_ident COLONCOLON last=any_ident
       { Primary.name (Name.mk [first] last) }
+      !!rust{ crate::cst::Primary::Name(crate::cst::Name { path: std::collections::VecDeque::from([first]), name: last }) }
   | first=special_ident COLONCOLON next=any_ident COLONCOLON tail=path_tail
       { tail [first, next] }
-path_tail :: (List Ident → Primary)
+      !!rust{ tail(std::collections::VecDeque::from([first, next])) }
+path_tail :: (List Ident → Primary) !!rust{Box<dyn FnOnce(std::collections::VecDeque<crate::cst::Ident>) -> crate::cst::Primary>}
   | last=any_ident                              { fun path => Primary.name (Name.mk path last) }
+      !!rust{ Box::new(move |path| crate::cst::Primary::Name(crate::cst::Name { path, name: last })) }
   | eid=str_lit                                 { fun components => Primary.ref (Ref.uid (Name.fromComponents components) eid) }
+      !!rust{ Box::new(move |components| crate::cst::Primary::Ref(Box::new(crate::cst::Ref::Uid(Box::new(crate::cst::name_from_components(components)), eid)))) }
   | LBRACE fields=ref_init_list RBRACE          { fun components => Primary.ref (Ref.ref (Name.fromComponents components) fields) }
+      !!rust{ Box::new(move |components| crate::cst::Primary::Ref(Box::new(crate::cst::Ref::Ref(crate::cst::name_from_components(components), fields)))) }
   | next=any_ident COLONCOLON tail=path_tail    { fun path => tail (path ++ [next]) }
+      !!rust{ Box::new(move |mut path| { path.push_back(next); tail(path) }) }
 
 -- Name := CommonIdent | (AnyIdent '::')+ AnyIdent
-name :: Name
+name :: Name !!rust{crate::cst::Name}
   | name=common_ident                           { Name.mk [] name }
+      !!rust{ crate::cst::Name { path: std::collections::VecDeque::new(), name: name } }
   | first=any_ident COLONCOLON tail=name_tail   { Name.mk (first :: tail.1) tail.2 }
-name_tail :: (List Ident × Ident)
+      !!rust{ crate::cst::Name { path: crate::cst::cons(first, tail.clone().0), name: tail.1 } }
+name_tail :: (List Ident × Ident) !!rust{(std::collections::VecDeque<crate::cst::Ident>, crate::cst::Ident)}
   | last=any_ident                              { ([], last) }
+      !!rust{ (std::collections::VecDeque::new(), last) }
   | next=any_ident COLONCOLON tail=name_tail    { (next :: tail.1, tail.2) }
+      !!rust{ (crate::cst::cons(next, tail.clone().0), tail.1) }
 
 -- Comma<RefInit>, including an optional trailing comma
-ref_init_list :: List RefInit
+ref_init_list :: List RefInit !!rust{std::collections::VecDeque<crate::cst::RefInit>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | init=ref_init rest=ref_init_comma_tail      { init :: rest }
-ref_init_comma_tail :: List RefInit
+      !!rust{ crate::cst::cons(init, rest) }
+ref_init_comma_tail :: List RefInit !!rust{std::collections::VecDeque<crate::cst::RefInit>}
   |                                             { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA                                       { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA init=ref_init rest=ref_init_comma_tail { init :: rest }
-ref_init :: RefInit
+      !!rust{ crate::cst::cons(init, rest) }
+ref_init :: RefInit !!rust{crate::cst::RefInit}
   | field=any_ident COLON value=literal         { RefInit.mk field value }
+      !!rust{ crate::cst::RefInit { field: field, literal: Box::new(value) } }
 
-literal :: Literal
+literal :: Literal !!rust{crate::cst::Literal}
   | TRUE                                        { .trueLit }
+      !!rust{ crate::cst::Literal::TrueLit }
   | FALSE                                       { .falseLit }
+      !!rust{ crate::cst::Literal::FalseLit }
   | number=NUMBER                               { .num number }
+      !!rust{ crate::cst::Literal::Num(number) }
   | value=str_lit                               { .str value }
-str_lit :: Str
+      !!rust{ crate::cst::Literal::Str(value) }
+str_lit :: Str !!rust{crate::cst::Str}
   | value=STRINGLIT                             { .string value }
+      !!rust{ crate::cst::Str::String(value.to_string()) }
 
 -- CommonIdent excludes only the three special expression starters.
-common_ident :: Ident
+common_ident :: Ident !!rust{crate::cst::Ident}
   | PRINCIPAL                                   { .principal }
+      !!rust{ crate::cst::Ident::Principal }
   | ACTION                                      { .action }
+      !!rust{ crate::cst::Ident::Action }
   | RESOURCE                                    { .resource }
+      !!rust{ crate::cst::Ident::Resource }
   | CONTEXT                                     { .context }
+      !!rust{ crate::cst::Ident::Context }
   | PERMIT                                      { .permit }
+      !!rust{ crate::cst::Ident::Permit }
   | FORBID                                      { .forbid }
+      !!rust{ crate::cst::Ident::Forbid }
   | WHEN                                        { .when }
+      !!rust{ crate::cst::Ident::When }
   | UNLESS                                      { .unless }
+      !!rust{ crate::cst::Ident::Unless }
   | IN                                          { .inIdent }
+      !!rust{ crate::cst::Ident::InIdent }
   | HAS                                         { .has }
+      !!rust{ crate::cst::Ident::Has }
   | LIKE                                        { .like }
+      !!rust{ crate::cst::Ident::Like }
   | IS                                          { .is }
+      !!rust{ crate::cst::Ident::Is }
   | THEN                                        { .thenIdent }
+      !!rust{ crate::cst::Ident::ThenIdent }
   | ELSE                                        { .elseIdent }
+      !!rust{ crate::cst::Ident::ElseIdent }
   | value=IDENTIFIER                            { .ident value }
-special_ident :: Ident
+      !!rust{ crate::cst::Ident::Ident(value.to_string()) }
+special_ident :: Ident !!rust{crate::cst::Ident}
   | IF                                          { .ifIdent }
+      !!rust{ crate::cst::Ident::IfIdent }
   | TRUE                                        { .trueIdent }
+      !!rust{ crate::cst::Ident::TrueIdent }
   | FALSE                                       { .falseIdent }
-any_ident :: Ident
+      !!rust{ crate::cst::Ident::FalseIdent }
+any_ident :: Ident !!rust{crate::cst::Ident}
   | value=common_ident                          { value }
+      !!rust{ value }
   | value=special_ident                         { value }
+      !!rust{ value }

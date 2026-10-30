@@ -15,6 +15,7 @@
 //! Rust lexer and parser for Cedar policies, generated from `cedar.lig`
 //! (`leanparsergenerator --backend rust`). See docs/RUST_PARSER.md.
 
+pub mod cst;
 pub mod generated;
 pub mod hooks;
 

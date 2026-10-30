@@ -30,6 +30,7 @@ The parser has no semantic actions. It returns a postorder concrete-syntax trace
 -/
 public import LeanParserGenerator.Emit.Codegen
 public import LeanParserGenerator.Emit.Rust.Lexer
+public import LeanParserGenerator.Emit.Rust.Values
 
 
 @[expose] public section
@@ -182,6 +183,12 @@ def generateRustFrom (s : Surface) (prepared : PreparedGrammar) (source : String
     | some spec => renderLexer s augEof spec
     | none => pure ""
   let parser := renderParser prepared
+  -- With Rust actions in the `.lig`: the value stacks and `parse_values`.
+  let values ← if hasRustActions s then do
+      let plan ← planValues s
+      let tokLt ← if s.lexer.isSome then do pure (← renderTok s augEof).1 else pure ""
+      renderValueParser s plan (if s.lexer.isSome then "Tok" else "Kind") tokLt
+    else pure ""
   -- Terminal constants. The `%eof` token's own declaration slot is unused (it is
   -- renamed to the augmented end terminal).
   let mut consts : Array String := #[]
@@ -208,6 +215,6 @@ def generateRustFrom (s : Surface) (prepared : PreparedGrammar) (source : String
     "pub struct Kind(pub u16);\n\n" ++
     "impl Terminal for Kind {\n    fn term(&self) -> u16 {\n        self.0\n    }\n}"]
   return String.intercalate "\n\n" (
-    [header, common] ++ kind ++ (if lexer.isEmpty then [] else [lexer]) ++ [parser ++ "\n"])
+    [header, common] ++ kind ++ (if lexer.isEmpty then [] else [lexer]) ++ [parser ++ "\n"] ++ (if values.isEmpty then [] else [values]))
 
 end Emit.Rust

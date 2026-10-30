@@ -119,6 +119,9 @@ def genTargets : Array GenTarget := #[
       "test/cedarentities/CedarEntitiesParser.lean",
       "test/cedarentities/CedarEntitiesLexer.lean",
       "test/cedarentities/CedarEntitiesLexerRoundtrip.lean"] },
+  { lig := "test/rustactions/rustactions.lig"
+    outputs := #["test/rustactions/RustactionsVerified.lean", "test/rustactions/RustactionsParser.lean",
+      "test/rustactions/RustactionsLexer.lean", "test/rustactions/rust/src/generated.rs"] },
   { lig := "test/spanuse/SpanUse.lig"
     outputs := #["test/spanuse/SpanUseVerified.lean", "test/spanuse/SpanUseParser.lean",
       "test/spanuse/SpanUseLexer.lean", "test/spanuse/SpanUseLexerRoundtrip.lean"] }
@@ -232,6 +235,15 @@ lean_lib «VerifiedHeavy» where
     `c99.C99Ast, `c99.C99Parser, `c99.C99Verified,
   ]
   needs := #[heavyParsers]
+
+/-- The `rustactions` fixture (Rust actions, `!!rust{…}`): its Lean AST and the generated Lean
+    lexer and parser, so that the Lean side of the grammar is compiled. The Rust side is
+    `test/rustactions/rust`, built in CI. -/
+@[default_target]
+lean_lib «RustActions» where
+  srcDir := "test"
+  roots := #[`rustactions.RustActionsAst, `rustactions.RustactionsLexer, `rustactions.RustactionsParser]
+  needs := #[parsers]
 
 /-- Throughput benchmark exe -/
 lean_exe «cedar-bench» where

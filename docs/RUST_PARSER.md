@@ -42,10 +42,46 @@ if the state has one, otherwise look up the action. A reduction with no goto is
 accepted if it is the augmented production, and an internal error otherwise. The
 `%eof` token is the augmented `$`, as in `Emit.emitDecoder`.
 
-There are no semantic actions. `parse` fills a postorder `Vec<Node>`: one node per
-shifted token and one per reduction, each with a source span. The last node is the
-augmented start production. This is a reduction trace, not an AST, so it does less
-work per reduction than the Lean parsers, which build the AST.
+`parse` fills a postorder `Vec<Node>`: one node per shifted token and one per reduction,
+each with a source span. The last node is the augmented start production. This is a
+reduction trace, not an AST, so it does less work per reduction than the Lean parsers,
+which build the AST. The trace is what a correspondence proof with the Lean parser talks
+about. With Rust actions in the `.lig` (next section) the generated file also has
+`parse_values`, which is the same LR loop (a separate copy generated from its own template,
+checked against `parse` by a test) and computes the user's values.
+
+## Rust actions
+
+The semantic actions of a `.lig` are Lean terms. The Rust backend does not translate them.
+Instead the grammar author writes a Rust action next to each Lean one, with the marker
+`!!rust{ … }`, and the generator pastes it, unchanged, into the reduction of that
+production. A rule's Rust type goes after its Lean type:
+
+    expr :: Expr !!rust{crate::ast::Expr<'a>}
+      | e=expr PLUS t=term { Expr.add e t }
+                           !!rust{ crate::ast::Expr::Add(Box::new(e), Box::new(t)) }
+      | t=term             { t }
+                           !!rust{ t }
+
+The Lean side is unchanged, so a user's Lean AST is used as before and the Rust side is
+free to use another representation: `Box`, an arena, borrowed strings, a `VecDeque` for a
+right-recursive list. The generator never reads the Rust text. It uses the Rust type of
+each rule only to decide which stack the rule's values live on. If the text does not
+compile, the user changes it; the rustc error is in `generated.rs`, and each arm carries a
+comment with the rule name and alternative number. How a user writes and calls them is in
+`docs/USING_RUST_GENERATOR.md`.
+
+The motivation is that the parsing theorems are stated on parse trees, so the proof that
+the Rust parser corresponds to the Lean one needs the two parsers to agree on the trace,
+and does not need their semantic values to agree. The values are the user's: the Lean and
+the Rust action of a production are separate pieces of code, and nothing checks that they
+build the same thing. A user who wants that can compare them on their own inputs.
+
+The driver, `parse_values`, keeps one `Vec` per distinct Rust type (`Stacks`) and an entry
+stack of states and spans. A reduction pops the values of its right-hand side, each from the
+stack of its type, binds them to the names the `.lig` gave them, evaluates the Rust body and
+pushes the result on the stack of the rule's type. A token's payload (`&'a str`, `u64`, `i64`)
+is pushed when the token is shifted. `x_span`, for a binder `x`, is a `Span { start, end }`.
 
 ## Lexers
 
@@ -126,6 +162,9 @@ Differences from the Lean lexer that remain:
 - `src/hooks.rs`: the Rust counterparts of `keywordOrIdentifier` and `stripStringQuotes`.
 - `src/bin/check.rs`: prints `ok`, `lex`, or `parse <token> <state> <lookahead>` per
   file; with `--tokens` or `--values`, the token stream.
+- `src/cst.rs`: the Rust CST built by the Rust actions of `cedar.lig`, hand-maintained.
+  It follows `CedarAst.lean` (the layered Cedar CST) with lists as `VecDeque`s and owned
+  strings.
 - `src/main.rs`: benchmark, same corpus and unit as `CedarBench.lean` (one file per
   "policy").
 
@@ -164,22 +203,6 @@ until the allocations went; with the allocations gone the loop is bound by the l
 the dependent table load (4.2 instructions per cycle, 0.3% branch misses on this corpus).
 Going further would need a different scanner, for example two bytes per step.
 
-## Checking against the Lean parser
-
-I generated 3000 mutants of the corpus (truncations, deletions, insertions,
-replacements, duplications) and ran both parsers. The Lean side is
-`CedarLexer.tokenize` followed by `CedarParser.diagnose`. The outputs agree on all
-3000: 1252 accepted, 335 lexer errors, 1413 parse errors, and for parse errors the
-token index, LR state and lookahead terminal are the same. The lexer is
-compared separately with `check --tokens`: on the same 3000 inputs the sequence of
-(terminal, start byte, end byte) for every token, end-of-input included, and the
-position of every lexer error are identical to `CedarLexer.tokenize`, and with
-`--values` so are the values of the identifier, slot, string-literal and number tokens.
-A lexer with three modes (nested comments, braces) was checked the same way against
-the generated Lean lexer on 3000 inputs: 1431 lexed, 1569 lexer errors, no differences.
-The trees on
-accepted inputs are not compared, only acceptance and error position.
-
 ## C99
 
 The C99 fixture has no lexer, so I tokenized three C programs with a throwaway Python
@@ -187,22 +210,20 @@ lexer (it tracks `typedef` names, so `TYPEDEF_NAME` is produced as the grammar
 expects). The fixture grammar has no brace initializers and no declarations in `for`
 headers, so the programs avoid them. 14,611 tokens in total, the largest file 13.6k.
 
-Differential check: 3000 token-level mutants (truncation, deletion, insertion,
-replacement, adjacent swap) run through `C99Parser.diagnose` and the Rust parser
-agree on all of them: 514 accepted, 2486 rejected, with the same token index, state and
-lookahead on every rejection.
-
 Parse only, 3 files, built from the same tokens: Rust 192 µs per file against 634 µs
 for the Lean parser (3.3x, about 76 million tokens/s against 23). The Lean parser
 builds the C99 CST and the Rust one a reduction trace. The C99 tables have 305 states
 and 184 productions.
 
-## Semantic actions: which ones can be emitted
+## The action classifier
 
-The generated parser has no semantic actions yet. The plan is to emit the actions that
-are plain data construction and to leave a typed Rust hook for the rest. The first
-step is a classifier that decides, for every parser alternative and lexer rule,
-whether its action can be emitted. It does not emit anything:
+Before Rust actions were written by hand (previous section), the plan was to translate the
+Lean actions. The classifier from that plan stays as a read-only report: for every parser
+alternative and lexer rule it says whether the action is built only from constructors,
+variables, lists, tuples and a few library functions. It does not emit anything, and the
+lexer uses the same rules (D14). For a grammar author it answers "how much of this
+grammar's Lean actions is plain data construction", which is also how much a Rust
+action is a transcription:
 
     lake env .lake/build/bin/leanparsergenerator --rust-report [-v] grammar.lig
 
@@ -275,25 +296,29 @@ classifier or report does it today.
 | D1 | Actions are parsed by our own parser for a subset of Lean (`Action.lean`), not by Lean's parser, which does not know the notation a header declares. Text outside the subset is a blocker. | Implemented |
 | D2 | Names are resolved against the Lean environment built from the header's `import`s, under its `open`s. Names defined in the header text itself are not visible and are reported as such. | Implemented |
 | D3 | `.c` and `⟨…⟩` get their type from the expected type: the nonterminal's declared type, then constructor field types, tuple, list and `Option` components. A polymorphic constructor field loses the expected type. | Implemented |
-| D4 | An action is emitted only if it uses the rules above and `knownFns`. Everything else needs a hand-written Rust hook, a function declared in the `.lig` like the lexer's `rust` lines. Lambdas are never emitted (no closures in the output). | Classifier implemented; hooks not generated |
-| D5 | A variable used more than once is a note ("copy needed"), not a blocker. Rust moves values off the parse stack, so the emitter will clone, and the AST types will derive `Clone`. | Reported |
-| D6 | `List T` becomes a Rust cons-list `enum List { Nil, Cons(Box<T>, Box<List<T>>) }`, as in Lean, not `Vec<T>`: `x :: rest` on a `Vec` is a front insert, quadratic on the right-recursive tails these grammars use. Revisit with a proved rewrite to `Vec` if the allocation shows up. | Decided, not implemented |
+| D4 | An action is emitted only if it uses the rules above and `knownFns`. Lambdas are never emitted. | Applies to lexer actions and the classifier; for parser actions superseded by D17 |
+| D5 | A variable used more than once is a note ("copy needed"), not a blocker. | Reported by the classifier; with D17 it is the user's concern |
+| D6 | `List T` as a Rust cons-list rather than `Vec<T>`, because `x :: rest` on a `Vec` is a front insert. | Superseded by D17: the user picks the type (a `VecDeque` with `push_front` does it in O(1)) |
 | D7 | `Nat` becomes `u64` and `Int` becomes `i64`. A value out of range is an error in the Rust code (D15), so the correspondence theorem reads: if the Rust lexer succeeds, so does Lean's, with the same tokens. | Implemented for lexer token values |
-| D8 | The Rust AST types are generated from the Lean environment (`inductive` becomes `enum`, `structure` becomes `struct`, `Box` on recursive fields, a subtype becomes its base type and its predicate a proof obligation). | Decided, not implemented |
-| D9 | Unemittable actions become methods of a generated trait, with the Rust types of D6 to D8; the user implements them. Each is a proof obligation. | Decided, not implemented |
+| D8 | The Rust AST types are generated from the Lean environment. | Tried and dropped, see D17 |
+| D9 | Unemittable actions become methods of a generated trait the user implements. | Not done; D17 puts the Rust text in the `.lig` instead |
 | D10 | A partial known function carries its domain as a regex, and the generator checks lexer-rule languages against it. | Implemented for lexer actions |
 | D11 | A structure instance must name exactly the structure's fields. | Implemented |
 | D12 | In a parser action a binder has the type declared for its symbol, `x_span` has type `Runtime.Span`, and in a lexer action the lexeme is a `String`. | Implemented |
 | D13 | A `String` token payload is a slice of the source, `&'a str`, and `Tok<'a>` has a lifetime parameter (only if some token has such a payload). Owned `String`s cost 1.4 µs of 6.0 on Cedar lexing in allocation and more in copying the larger token. | Implemented |
 | D16 | The lexer tables are a re-encoding of the byte DFA: states renumbered with the accepting ones last, a state is the offset of its row, a step is one load. The generator checks the re-encoding against the byte DFA before it writes it. Proving it is part of the Rust-to-Lean bridge. | Implemented |
 | D14 | A lexer action has one of five forms (`skip`, `Tok.T`, `Tok.T s`, `Tok.T (f s)`, `g s`); a Lean function used in one has a Rust counterpart, built in or declared with `rust f => path` in the `%lexer` block. | Implemented |
+| D17 | A parser action has a Rust counterpart written by the grammar author, `!!rust{ … }` after the Lean action, pasted verbatim into the reduction. The Rust type of a rule is `!!rust{type}` after its Lean type. The generator does not parse, translate or check the Rust. The parse-tree correspondence is independent of the values. | Implemented |
+| D18 | Values live on one `Vec` per distinct Rust type; the production being reduced pops from the stacks of its right-hand side symbols. Rejected: one enum of all value types, which has the size of the largest AST node and was copied on every shift and reduction. With an AST whose nodes were up to 500 bytes, two thirds of the time went to `memmove`; per-type stacks and nodes of at most 64 bytes (larger fields behind a `Box`) cut the cost of building the AST per token by more than half. The trace parser, which builds nothing, is several times faster still. | Implemented |
+| D19 | Rust actions are all or nothing: every rule needs a type and every alternative an action, or none has any. | Implemented |
+| D21 | Macro-generated rules get Rust text from the expansion when the grammar has Rust actions: lists are `VecDeque<T>` (the expansion is right-recursive, so `push_front` keeps it O(1)), options `Option<T>`, `T` the Rust type of the element, the payload type for a token (`&'a str` for a `String`). A user who wants another representation writes the list rule by hand. | Implemented |
+| D22 | A reduction whose action is just the name of its only binder, with the symbol and the rule of the same Rust type, generates no code. | Implemented |
+| D20 | The `.lig` frontend reads `!!rust{…}` without a change to `lig.lig`: the bootstrap lexer keeps the Rust text inside the type or action token, and `assembleSurface` splits it off. The committed bootstrap parser is unchanged. | Implemented |
 | D15 | A numeral that does not fit `u64`/`i64`, or a string `toNat!` is not defined on, makes the Rust lexer fail (`Unrepresentable`) instead of saturating or returning 0. Rust counterparts of lexer functions return `Option`. | Implemented |
 
 ## Not done
 
-- Rust-embedded parser actions in the `.lig`.
-- Emitting the actions and the Rust AST; the tree in `generated.rs` is the reduction trace.
+- A check that a Rust action and its Lean action build the same thing.
 - A pull-based lexer (no token vector) and collapsing unit-production chains, which
   dominate the 1600 nodes per Cedar file.
-- Wiring into `lake build parsers`; the Rust file is generated by hand.
 - Verification.

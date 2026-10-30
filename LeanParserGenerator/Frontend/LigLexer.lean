@@ -218,7 +218,18 @@ partial def tokenize (input : String) : Except String (List LigTok) := do
     else if ch == '{' then
       match captureBalanced cur '{' '}' with
       | .error e => throw e
-      | .ok (interior, c1) => toks := toks.push (.ACTION interior.trimAscii.toString); cur := c1
+      | .ok (interior, c1) =>
+        -- An optional Rust action `!!rust{ … }` is kept in the same token, after the marker;
+        -- `assembleSurface` splits it off.
+        let c2 := skipWs c1
+        if c2.startsWith rustMarker then
+          match captureBalanced (skipWs (c2.skip rustMarker)) '{' '}' with
+          | .error e => throw ("in `!!rust{…}`: " ++ e)
+          | .ok (rustBody, c3) =>
+            toks := toks.push (.ACTION (interior.trimAscii.toString ++ rustMarker ++ "{" ++ rustBody ++ "}"))
+            cur := c3
+        else
+          toks := toks.push (.ACTION interior.trimAscii.toString); cur := c1
     else if (match toks.toList.reverse with
         | .IDENT "gen_rust" :: .KW_OPTION :: _ => true
         | _ => false) then
@@ -263,6 +274,12 @@ inductive Directive where
     and validation as the old `parseLig`. Kept in sync with `parseLig`. -/
 def assembleSurface (directives : Array Directive) (rules : Array Rule) :
     Except String Surface := do
+  -- The bootstrap lexer leaves `!!rust{…}` inside the type and action texts.
+  let rules := rules.map fun r =>
+    let (ty, rustTy) := splitRust r.ty
+    { r with ty := ty, rustTy := rustTy, alts := r.alts.map fun a =>
+        let (act, rust) := splitRust a.action
+        { a with action := act, rustAction := rust } }
   let mut header := ""
   let mut lexerHeader := ""
   let mut tokens : Array TokenDecl := #[]

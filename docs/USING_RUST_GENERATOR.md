@@ -6,9 +6,9 @@ document says how to run it, what the generated file contains, and how to call i
 design and the decisions behind it are in [RUST_PARSER.md](RUST_PARSER.md).
 
 Status: prototype. The generated parser returns a trace of the parse (which tokens were
-shifted and which productions were reduced), not an AST, because semantic actions are
-not emitted yet. Nothing is proved about the Rust code. On the Cedar corpus the output
-agrees with the Lean lexer and parser (see "Checking against Lean").
+shifted and which productions were reduced). If the grammar has Rust actions
+(`!!rust{…}`, see "Rust actions" below) it also has `parse_values`, which returns the
+value of the start symbol. Nothing is proved about the Rust code.
 
 ## Quick start
 
@@ -203,6 +203,83 @@ are the expansions of `list(policy)`.
 `term_name(term)` gives the lookahead's name. The set of terminals the state would have
 accepted is not exposed; the Lean parser's `diagnose` computes it.
 
+## Rust actions
+
+The Lean actions of a `.lig` stay as they are and build the user's Lean values. To get
+values from the Rust parser, write a Rust action after each Lean action, between
+`!!rust{` and `}`, and a Rust type after each rule's Lean type:
+
+    expr :: Expr !!rust{crate::ast::Expr<'a>}
+      | e=expr PLUS t=term { Expr.add e t }
+                           !!rust{ crate::ast::Expr::Add(Box::new(e), Box::new(t)) }
+      | t=term             { t }
+                           !!rust{ t }
+
+`test/rustactions/rustactions.lig` is a complete example, with its Rust AST in
+`test/rustactions/rust/src/ast.rs`.
+
+The generator pastes each Rust action into the reduction of its production, as the body of a
+block that must evaluate to the rule's Rust type. It does not read the text, so any Rust
+works: statements before the final expression, calls into your own modules, closures. It
+is your job to keep the Rust action doing what the Lean one does; nothing checks it,
+and the theorems about the parser are about the parse tree, which does not depend on either.
+
+What is in scope in the body:
+
+- Each binder `x` of the alternative is a local named `x`, with the type of its symbol: the
+  Rust type given after `!!rust` on the rule head for a nonterminal, and the lexer's payload
+  type for a token (`&'a str` for `String`, `u64` for `Nat`, `i64` for `Int`, `bool`,
+  `char`; `()` for a token without a payload). The value is moved in, so no clone is
+  needed to keep it.
+- `x_span` is a `generated::Span { start: u32, end: u32 }`, the byte range of the symbol.
+  It is bound for every binder, so an unused one gives no warning (the function allows
+  `unused_variables`).
+- `'a` is the lifetime of the source text. Use it in the Rust types of the rules to
+  borrow strings from the source without copying, as the example does. It is defined when
+  some token has a `String` payload or a type mentions `'a`.
+- A binder that is a Rust keyword is bound as `r#name`.
+- The generated code uses names that start with `__`; do not use those.
+- Types are written as seen from `generated.rs`: your own module is `crate::ast::…`.
+
+Rules:
+
+- All or nothing. If any rule has a Rust type or any alternative a Rust action, all of them
+  need one. Missing ones are listed. A reduction `{ x }` of a single symbol with the same
+  Rust type as its rule generates no code: the value stays on its stack.
+- Rules created by macros (`list(X)`, `nonempty_list(X)`, `option(X)`,
+  `separated_list(sep, X)`, `separated_nonempty_list(sep, X)`) get Rust text from the
+  generator, when the grammar has Rust actions. A list is a `std::collections::VecDeque<T>`
+  (the expansion is right-recursive, `x :: xs`, and `push_front` is O(1)) and an option is
+  `Option<T>`, where `T` is the Rust type of the element: the `!!rust{type}` of the rule it
+  names, the payload type of a token (`&'a str` for a `String` payload, so the list borrows from
+  the source like the token does), or the type of a nested macro. Write the binder
+  of a macro element as such a value, as in `args=separated_list(COMMA, expr)` above, whose
+  Rust type is `VecDeque<Expr>`.
+- A grammar without a `%lexer` block can have Rust actions only if no token has a payload
+  (the tokens are `Kind`, which is only a terminal index).
+- A `}` in a Rust string or comment must be balanced like the Lean actions' braces, since the
+  frontend finds the end of the action by counting braces.
+
+Calling it:
+
+    let mut toks = Vec::new();
+    tokenize(&src, &mut toks)?;
+    let mut stacks = Stacks::new();                 // keep it between calls
+    let program = parse_values(&toks, &mut stacks)?;
+
+`parse_values(tokens, stacks)` returns `Result<T, ParseError>`, where `T` is the Rust type of
+the start rule. `Stacks` holds the buffers (the entry stack and one `Vec` per distinct
+Rust type); `parse_values` clears them first. The `ParseError` is the same type as `parse`'s. The two functions are generated from
+separate templates of the same loop and read the same tables, so they accept the same token
+lists and fail at the same token, state and lookahead; `test/rustactions/rust/src/main.rs`
+checks that on its samples.
+
+The values are not kept in one enum. A value is pushed on the stack of its Rust type when
+it is made and popped when its production is reduced, so the cost of an action is the cost of
+moving its arguments and its result. Large AST nodes make that cost visible: if a node
+is several hundred bytes, put its large fields behind a `Box`, or allocate nodes in an
+arena and have the rule's type be a reference or an index.
+
 ## Lexer rules the Rust backend accepts
 
 The Lean backends accept any Lean term as a lexer action. The Rust backend accepts only
@@ -276,8 +353,7 @@ returns `Some` always.
 
 The Lean definition of the function stays in the `%lexerheader` of the `.lig` and is the
 specification. The two definitions are separate pieces of code and nothing yet checks
-that they agree; that is the job of the verification step, and until then of the
-differential test below. Where the types differ, the Rust one has fewer constraints:
+that they agree; that is the job of the verification step. Where the types differ, the Rust one has fewer constraints:
 Cedar's `IDENTIFIER` carries `{s // s ∉ keywords}` in Lean and a plain `&str` in Rust.
 
 Keywords do not need a function. Because the lexer takes the longest match and breaks
@@ -337,44 +413,30 @@ yourself, as `Spanned<Kind>`, using the constants in `mod term`:
 
 or implement `Terminal` for your own token type and parse a `&[Spanned<YourTok>]`.
 
-## Checking against Lean
-
-Nothing proves the Rust code correct yet. What we do instead is compare it with the Lean
-backends on mutated inputs. For Cedar, the recipe is:
-
-1. Make inputs: take the corpus files and apply random edits (truncate, delete a range,
-   insert a fragment, replace, duplicate), 3000 files. Many become errors, which is the
-   point.
-2. Lean side: a small program that, per file, runs `CedarLexer.tokenize` and
-   `CedarParser.diagnose`, and prints `ok`, `lex`, or `parse <position> <state>
-   <lookahead>`. For the lexer, print each token as `<terminal>:<start>-<end>` and its
-   value.
-3. Rust side: `check`, `check --tokens` and `check --values` print the same formats.
-4. Diff.
-
-On the Cedar corpus mutants there are no differences in acceptance, error position, LR
-state, lookahead, token terminals, token spans or token values; a lexer with three modes
-was checked the same way. The differences that are known are the ones listed under "Token
-types" and the end-of-input token above. Before trusting a new grammar, run the same
-comparison on it. The cases that matter most are functions you wrote twice (the Lean one
-and the Rust one) and inputs with non-ASCII characters, where character and byte offsets
-differ.
-
 ## Performance
 
 Cedar corpus (28 files, 49,670 bytes), one thread, per file; Lean is the Lean parser
 building the AST:
 
-| | Rust | Lean |
-|---|---|---|
-| lex + parse | 15 µs | 88 µs |
-| lex only | 3.4 µs | 44 µs |
-| parse only | 11 µs | 43 µs |
+| | Rust trace | Rust values | Lean (builds the AST) |
+|---|---|---|---|
+| lex + parse | 15 µs | 35 µs | 88 µs |
+| lex only | 3.4 µs | 3.4 µs | 44 µs |
+| parse only | 11.5 µs | 30.6 µs | 43.7 µs |
 
-The Rust parser does less per reduction (it records a node; Lean runs the semantic
-action), so the numbers do not compare equal work. Lexing is about 520 MB/s. The corpus
-is small and repeated, so the branch predictor learns it; a larger and more varied
-input will be slower.
+"Rust values" is `parse_values` with the Rust actions of `test/cedar/cedar.lig`, which
+build the CST of `test/cedar/rust/src/cst.rs` (a faithful copy of the layered Cedar CST:
+about a dozen nested boxes per primary expression) and drop it after each parse. The trace
+parser records a node per reduction and does no allocation, so it is not equal work to the
+others. Lexing is about 520 MB/s. The corpus is small and repeated, so the branch predictor
+learns it; a larger and more varied input will be slower.
+
+Where the time goes in `parse_values`: the LR loop itself costs about what the trace parser
+costs (11.5 µs here). Under `perf` over the whole benchmark, `malloc` and `free` take about
+a fifth of the time, and `parse_values` itself (with the actions inlined: building the nodes
+and moving values between stacks) about a third. The representation is the user's, so it is
+also where the time can be saved: a flatter AST, an arena, indexes instead of boxes. The
+generator pastes whatever the action says.
 
 ## When something goes wrong
 
@@ -385,6 +447,10 @@ input will be slower.
 | `the value must be the lexeme … or one function applied to it` | a composition inside `Tok.T (…)` |
 | `` `Tok.T` carries a value but the action gives none `` (or the reverse) | the action does not match the `%token` declaration |
 | `no Rust type for the token value type …` | the `%token <T>` type is not in the table above |
+| `Rust actions must be given for every rule and alternative` | some rule has no `!!rust{type}` or some alternative no `!!rust{…}` action |
+| `Rust actions need the token payloads, which come from a `%lexer` block` | a grammar with Rust actions, tokens with payloads and no `%lexer` |
+| `in `!!rust{…}`: unterminated '{…}' block` | unbalanced braces in the Rust text |
+| a rustc error inside an arm of `parse_values` | the Rust action; the comment above the arm names the rule and alternative |
 | `the `eof` action must be …` | the `eof` clause is not the `%eof` token |
 | `a lexer rule enters unknown mode` | a transition names a mode that does not exist |
 | `unexpected character '.'` (or `/`) while reading the `.lig` with the bootstrap frontend | the `gen_rust` path starts with `.` or `/` |
@@ -394,8 +460,9 @@ A Rust compile error in the generated file about a missing function means the pa
 
 ## What is not there
 
-- Semantic actions and an AST. `leanparsergenerator --rust-report grammar.lig` (run under
-  `lake env`) says which actions of a grammar could be emitted and why not for the rest;
-  see RUST_PARSER.md.
-- Proofs, and any statement of correctness beyond the differential tests.
+- A translation of Lean actions to Rust. `leanparsergenerator --rust-report grammar.lig`
+  (run under `lake env`) says which actions are plain data construction, which is how
+  much of a grammar's Rust actions is a transcription; see RUST_PARSER.md.
+- Any check that a Rust action agrees with its Lean action.
+- Proofs.
 - A Rust header inside the `.lig`; the Rust functions live in your own module.

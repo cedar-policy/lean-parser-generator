@@ -10,13 +10,16 @@ diagnostics inline (squiggles + Problems panel).
 
 - directives `%header`, `%tokentype`, `%token`, `%eof`, `%start` and the `%%`
   separator;
-- `%option` and its three known names — `compress_tables`, `roundtrip_lexer`, and
-  the value-carrying `module_prefix <path>`; an unrecognized option name is colored
-  as invalid (the server also reports it as an error);
+- `%option` and its known names — the flags `compress_tables` and `roundtrip_lexer`, and
+  the value-carrying `module_prefix <path>`, `roundtrip_parser <function>`,
+  `roundtrip_format <function>` and `gen_rust <file>`; an unrecognized option name is
+  colored as invalid (the server also reports it as an error);
 - terminals (UPPERCASE names) vs nonterminals (lowercase names) in rule bodies;
 - carried token types `<T>` and rule head types after `::`;
 - `x=SYMBOL` value bindings and the `|` alternative separator;
-- embedded Lean inside `%header { … }` and `{ … }` semantic actions;
+- embedded Lean inside `%header { … }` and `{ … }` semantic actions, and embedded Rust
+  inside `!!rust{ … }` (the Rust counterpart of an action, or the Rust type after a rule's
+  Lean type);
 - `--` line and `/- … -/` block comments.
 
 Highlighting needs no build step — it works as soon as the extension is loaded.

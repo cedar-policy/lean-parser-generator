@@ -1,0 +1,97 @@
+-- Test fixture for Rust actions (`!!rust{…}`): the Lean actions build `RustActions.*` values,
+-- the Rust ones build the hand-written `rust/src/ast.rs`, borrowing strings from the source.
+-- `separated_list(…)` is a macro: its Rust counterpart is a `VecDeque` (docs/RUST_PARSER.md, D21).
+%header {
+import rustactions.RustActionsAst
+open RustActions
+}
+%option module_prefix rustactions
+%option gen_rust rust/src/generated.rs
+%tokentype Tok
+%token LET PRINT IF THEN ELSE
+%token PLUS MINUS TIMES LPAR RPAR COMMA SEMI EQ AT
+%token <String> IDENT
+%token <String> STR
+%token <Int> NUM
+%token EOF
+%eof EOF
+%lexer {
+  let digit = ['0'-'9']
+  let idstart = ['a'-'z' 'A'-'Z' '_']
+  let idcont = ['a'-'z' 'A'-'Z' '0'-'9' '_']
+  | (' ' | '\t' | '\n' | '\r')+          => skip
+  | "#" [^ '\n']*                        => skip
+  | "let"                                => { Tok.LET }
+  | "print"                              => { Tok.PRINT }
+  | "if"                                 => { Tok.IF }
+  | "then"                               => { Tok.THEN }
+  | "else"                               => { Tok.ELSE }
+  | "+"                                  => { Tok.PLUS }
+  | "-"                                  => { Tok.MINUS }
+  | "*"                                  => { Tok.TIMES }
+  | "("                                  => { Tok.LPAR }
+  | ")"                                  => { Tok.RPAR }
+  | ","                                  => { Tok.COMMA }
+  | ";"                                  => { Tok.SEMI }
+  | "="                                  => { Tok.EQ }
+  | "@"                                  => { Tok.AT }
+  | digit+ as s                          => { Tok.NUM (String.toInt! s) }
+  | idstart idcont* as s                 => { Tok.IDENT s }
+  | '"' [^ '"']* '"' as s                => { Tok.STR s }
+  eof => { Tok.EOF }
+}
+%start program
+%%
+program :: Program !!rust{crate::ast::Program<'a>}
+  | ss=stmts   { Program.mk ss 7 }
+               !!rust{ crate::ast::Program { stmts: ss, count: 7 } }
+stmts :: Stmts !!rust{std::collections::VecDeque<crate::ast::Stmt<'a>>}
+  | s=stmt SEMI rest=stmts { s :: rest }
+                           !!rust{ let mut rest = rest; rest.push_front(s); rest }
+  |                        { [] }
+                           !!rust{ std::collections::VecDeque::new() }
+stmt :: Stmt !!rust{crate::ast::Stmt<'a>}
+  | LET x=IDENT EQ e=expr   { Stmt.bind { name := x, value := e, index := 1 } }
+                            !!rust{ crate::ast::Stmt::Bind { name: x, value: e, index: 1 } }
+  | PRINT e=expr            { Stmt.print e }
+                            !!rust{ crate::ast::Stmt::Print(e) }
+expr :: Expr !!rust{crate::ast::Expr<'a>}
+  | IF c=sum THEN t=sum ELSE e=sum  { Expr.cond c t (some e) }
+                                    !!rust{ crate::ast::Expr::Cond(Box::new(c), Box::new(t), Some(Box::new(e))) }
+  | IF c=sum THEN t=sum             { Expr.cond c t none }
+                                    !!rust{ crate::ast::Expr::Cond(Box::new(c), Box::new(t), None) }
+  | e=sum                           { e }
+                                    !!rust{ e }
+sum :: Expr !!rust{crate::ast::Expr<'a>}
+  | a=sum PLUS b=prod      { Expr.bin .add a b }
+                           !!rust{ crate::ast::Expr::Bin(crate::ast::Op::Add, Box::new(a), Box::new(b)) }
+  | a=sum MINUS b=prod     { Expr.bin .sub a b }
+                           !!rust{ crate::ast::Expr::Bin(crate::ast::Op::Sub, Box::new(a), Box::new(b)) }
+  | a=prod                 { a }
+                           !!rust{ a }
+prod :: Expr !!rust{crate::ast::Expr<'a>}
+  | a=prod TIMES b=atom    { Expr.bin .mul a b }
+                           !!rust{ crate::ast::Expr::Bin(crate::ast::Op::Mul, Box::new(a), Box::new(b)) }
+  | a=atom                 { a }
+                           !!rust{ a }
+atom :: Expr !!rust{crate::ast::Expr<'a>}
+  | n=NUM                  { Expr.num n }
+                           !!rust{ crate::ast::Expr::Num(n) }
+  | MINUS a=atom           { Expr.neg a }
+                           !!rust{ crate::ast::Expr::Neg(Box::new(a)) }
+  | x=IDENT                { Expr.var x }
+                           !!rust{ crate::ast::Expr::Var(x) }
+  | x=IDENT AT             { Expr.located x x_span }
+                           !!rust{ crate::ast::Expr::Located(x, x_span) }
+  | s=STR                  { Expr.str s }
+                           !!rust{ crate::ast::Expr::Str(s) }
+  | s=STR AT               { Expr.len s.length }
+                           !!rust{ crate::ast::Expr::Len(s.chars().count() as u64) }
+  | f=IDENT LPAR args=separated_list(COMMA, expr) RPAR { Expr.call f args }
+                                !!rust{ crate::ast::Expr::Call(f, args) }
+  | LPAR a=expr COMMA b=expr RPAR { Expr.pair (a, b) }
+                                  !!rust{ crate::ast::Expr::Pair(Box::new((a, b))) }
+  | LPAR a=expr COMMA b=expr COMMA c=expr RPAR { Expr.triple (a, b, c) }
+                                               !!rust{ crate::ast::Expr::Triple(Box::new((a, b, c))) }
+  | LPAR e=expr RPAR       { e }
+                           !!rust{ e }

@@ -10,6 +10,7 @@
     { "include": "#lexer-block" },
     { "include": "#directives" },
     { "include": "#type-annotation" },
+    { "include": "#rust-block" },
     { "include": "#action-block" },
     { "include": "#alternative-bar" },
     { "include": "#binding" },
@@ -76,6 +77,24 @@
           }
         },
         {
+          "comment": "%option roundtrip_parser|roundtrip_format <function> — value options naming a Lean function",
+          "match": "(%option)\\s+(roundtrip_parser|roundtrip_format)\\s+([A-Za-z_][A-Za-z0-9_.']*)",
+          "captures": {
+            "1": { "name": "keyword.control.directive.lig" },
+            "2": { "name": "constant.language.option.lig" },
+            "3": { "name": "entity.name.function.lig" }
+          }
+        },
+        {
+          "comment": "%option gen_rust <path> — the generated Rust file, relative to the .lig (a run of non-blank characters)",
+          "match": "(%option)\\s+(gen_rust)\\s+(\\S+)",
+          "captures": {
+            "1": { "name": "keyword.control.directive.lig" },
+            "2": { "name": "constant.language.option.lig" },
+            "3": { "name": "string.unquoted.path.lig" }
+          }
+        },
+        {
           "comment": "%option <name> — known flag options",
           "match": "(%option)\\s+(compress_tables|roundtrip_lexer)\\b",
           "captures": {
@@ -107,7 +126,8 @@
       "end": "$",
       "patterns": [
         { "include": "#comments" },
-        { "name": "entity.name.type.lig", "match": ".+" }
+        { "include": "#rust-block" },
+        { "name": "entity.name.type.lig", "match": "[^!]+|!(?!!rust)" }
       ]
     },
 
@@ -196,6 +216,34 @@
           "name": "keyword.operator.alternative.lig",
           "match": "\\|"
         }
+      ]
+    },
+
+    "rust-block": {
+      "comment": "!!rust{ ... } — the Rust counterpart of a Lean action, or the Rust type of a rule after its Lean type; pasted verbatim into the generated Rust parser",
+      "begin": "(!!rust)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.directive.lig" },
+        "2": { "name": "punctuation.section.embedded.begin.lig" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.section.embedded.end.lig" }
+      },
+      "contentName": "meta.embedded.block.rust",
+      "patterns": [
+        { "include": "#rust-braces" },
+        { "include": "source.rust" }
+      ]
+    },
+
+    "rust-braces": {
+      "comment": "nested braces inside the Rust text",
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        { "include": "#rust-braces" },
+        { "include": "source.rust" }
       ]
     },
 
