@@ -5517,8 +5517,10 @@ theorem parserRunRefines (input : List grammarInst.Token) (logNSteps : Nat) :
       (CedarSchemaParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
   have hrun : CedarSchemaParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps
       = Runtime.Exec.run CedarSchemaParser.table (input.map executableRefinement.decode) logNSteps := by
-    simp only [CedarSchemaParser.run, CedarSchemaParser.table, executableRefinement, List.map_map,
-      Runtime.Exec.runRedv_eq_run CedarSchemaParser.flat CedarSchemaParser.redvMatches]
+    simp only [CedarSchemaParser.run]
+    rw [Runtime.Exec.runFast_eq_run CedarSchemaParser.stackOps CedarSchemaParser.flat CedarSchemaParser.fuse
+      CedarSchemaParser.termOf CedarSchemaParser.valOf CedarSchemaParser.stackLawful CedarSchemaParser.fuseOK]
+    simp only [CedarSchemaParser.table, executableRefinement, List.map_map]
     rfl
   rw [hrun]
   simpa [executableRefinement] using

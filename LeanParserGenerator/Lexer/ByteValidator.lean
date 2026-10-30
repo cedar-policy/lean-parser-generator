@@ -548,7 +548,8 @@ theorem byteScan_rule_eq_flatScanArr (bd : ByteDFA) (f : FlatDFA)
     (hstart : 0 < f.nStates) (s : String) :
     (DFA.byteScan bd s.toUTF8 0).map Prod.fst
       = (DFA.flatScanArr f s.toList.toArray 0).map Prod.fst := by
-  unfold DFA.byteScan DFA.flatScanArr
+  rw [DFA.byteScan_eq_go]
+  unfold DFA.flatScanArr
   simp only [Nat.sub_zero, List.size_toArray]
   -- byte side → list model
   rw [byteScanGo_eq_listGo bd s (s.toUTF8.size + 1) 0 0 none]

@@ -267,12 +267,12 @@ The executable output contains:
   semantic value together with its source span;
 - token decoding `decode : Runtime.Positioned Tok → Nat × VP`, attaching each
   token's span;
-- semantic actions over `List VP`: `sem`/`redv` bind, for a symbol `x`, both the
+- semantic actions over `List VP`: `sem` and the fused reduces `fuse<p>` bind, for a symbol `x`, both the
   value `x` and its span `x_span`, and fold the production's span as
   `Runtime.Span.merge (first symbol) (last symbol)` (Menhir's `$startpos`/
   `$endpos`; a single symbol folds to its own span, an empty RHS to the dummy
   span). An action that never mentions `x_span` pays nothing — generated `sem`/
-  `redv` set `linter.unusedVariables false` so an ignored span binder is not a
+  `fuse<p>` set `linter.unusedVariables false` so an ignored span binder is not a
   warning;
 - flat Pager action/goto arrays;
 - `run : List (Runtime.Positioned Tok) → Runtime.Exec.Result VP` and
@@ -637,8 +637,9 @@ Abandoned along the way, each for the stated reason:
 - Building the flat boundaries from complement-resolved `classIntervals` endpoints failed `flatValidate` on the calculator's negated classes, so boundaries are the raw edge-class endpoints (where `CharClass.mem` actually changes).
 - A fused `state × 128` direct-ASCII transition table (one read per ASCII char) measured identical to `classOf`+table, so it was not adopted.
 - The interim `test/LexerEmitAgreementTest.lean` (compare emitted tables against a run-time rebuild) was removed once the emitted tables are validated directly (§9.7 step 5).
-- Against Rust `PolicySet::from_str` the end-to-end lex+parse is ~1.65x on the
-  current flat+redv runtime (§9.6.1), down from ~2.4–2.9x on the pre-flat runtime.
+- Against Rust `PolicySet::from_str` the end-to-end lex+parse was ~1.65x on the
+  flat scanner with the `redv` engine (§9.6.1), down from ~2.4–2.9x on the pre-flat runtime.
+  It is now about 0.75x of the Rust figure recorded there (§9.6.5).
   Cedar's Rust parser fuses lexing and parsing (`logos` DFA + LALRPOP) in one call,
   so there is no Rust lex-only figure to compare against; only the fused unit is
   comparable.
@@ -694,7 +695,7 @@ stack was 2x slower because through `Id.run do`/`let mut` the array reference is
 provably unique, so `push`/`shrink` copy on nearly every step; a genuinely in-place
 stack needs linearity (`ST` with a unique ref), not pursued once fusion showed no
 benefit. Fusion is not made the primary spec anyway — if ever wanted it can be a
-library-level equivalence `runFused = runRedv (tokenize |>.map decode)`, keeping the
+library-level equivalence `runFused = runFast (tokenize |>.map decode)`, keeping the
 `List Tok` theorems. The one regime not covered is a multi-GB single input file, where the
 intermediate `List Tok` is one file-sized allocation; that is a
 memory-residency question a 49 KB corpus cannot surface, and fusion there should be
@@ -815,6 +816,32 @@ actions). Parser-side candidates are recorded separately in §13.
    change. The remaining per-char cost is UTF-8 decode + machine-int arithmetic, which
    only the byte scanner (§9.6.3, deferred) removes.
 
+
+3. **Unpacked best match in the scan loop — done, retained.** `flatScanStrGo` carried
+   the best accepting prefix as `Option (Nat × Nat × s.Pos)`, so every accepting state
+   (every character of an identifier or number) allocated a `some` and two pairs that
+   the next character freed. `flatScanStrGoU` carries the rule (an `Int`, negative
+   for none), the character count and the end position as three loose arguments, and
+   allocates only at the exit. The tokenizers then match on `ScanRes`, an inductive
+   with one constructor of three fields, instead of the `Option` of nested pairs; that
+   removes two more allocations per token. `ScanRes.elim_eq` rewrites the tokenizer's
+   `elim` to the `Option` form, and `flatScanStrGoU_eq` proves the loop equal to
+   `flatScanStrGo`, so `tokenizeFlatStrAux_eq_single` and `tokenizeFlatStrPosAux_val`
+   changed by one `rw` each and `tokenizeFlatStr_eq_tokenize` is untouched. Measured on
+   Cedar lex-only: 73 → 50 µs (the loop) → 44 µs (`ScanRes`), tokens identical. The
+   same change to the byte scanner (`byteScanGoU`, `byteScan_eq_go`) took
+   `tokenizeByte` from 57 to 45 µs, which is now level with the flat scanner, so the
+   byte path is no longer faster than `tokenize`.
+
+### 9.6.5 Where lex+parse stands
+
+Cedar, 28 files, this machine: lex+parse 223 → 88 µs/policy (lex 73 → 44, parse 153 →
+43). The Rust figure in §9.6.1 (117 µs) was measured on another machine, so
+the ratio is indicative only. On the same machine the old Lean figure was 223, not
+195.
+Lexing is now 50–60% of the total. A `perf` profile of Cedar lex-only has the scan loop
+at 30%, the per-token allocations and frees at about 40%, and the user actions
+(keyword lookup, `String.toNat!`) at 5%.
 
 ### 9.7 Verification plan
 
@@ -1222,7 +1249,7 @@ and automatic Lake generation workflows are documented in
 [`INTEGRATION.md`](INTEGRATION.md). Later independent work includes a verified
 lexer and `.lig` language-server diagnostics.
 
-## 13. Executable parser throughput: the inline engine
+## 13. Executable parser throughput: the inline and fused-reduce engines
 
 The generated `ExecTable V` (§6) already stores the action, goto, default-reduce,
 `prodLhs`, `prodRhsLen`, and semantic tables as flat `Array` literals — the LR table
@@ -1298,101 +1325,122 @@ Abandoned, for the stated reason:
   `List`, so deep right-recursion costs proportional memory, not time, and the
   reverse-once wrapper offsets it.
 
-### The direct-stack reduce (the `redv` engine; implemented and sound)
+### The fused-reduce engine (`runFast`; implemented and sound)
 
-The second step attacks that per-reduce allocation directly. `reduceInline`
-still does, per reduce, `popN` (which allocates a `List V` of the operands) and
-then `sem p args` (which pattern-matches that list). Both go away if the emitted
-code reads the operands off the stack in one match. I profiled the ceiling on
-parse-only time: a no-op `sem` that reads the stack by RHS length without building
-the list runs well below a no-op `sem` that still builds the `popN` list, so the
-`List V` allocation and the `sem` list-match dispatch are a measurable share.
+The inline engine still allocated, per parser step, a `Result ⊕ (Stack × List)` and
+the pair inside it, and per reduce a `popN` argument list (or, in the `redv` engine
+that this replaced, an `Option` and a pair). Profiling Cedar parse-only with `perf`
+put about half of the time in `lean_alloc_small_object_core`, `lean_dec_ref_cold`,
+`mi_free` and `lean_free_object`, so this round counted allocations per step
+instead of instructions. `Runtime/ExecFast.lean` holds the engine that generated
+parsers now run. `Exec.run` (over `ExecTable`) remains the specification, and
+`runFast_eq_run` proves the new engine equal to it.
 
-`Runtime/Exec.lean` adds `redv : Nat → Stack V → Option (V × Stack V)` as a
-`FlatTable` field and a `runRedv` engine that uses it, following the same
-a-posteriori pattern as the inline engine — `runInline` stays the intermediate
-spec, `runRedv` is a verified-equal running object:
+What changed, each with the allocation it removes:
 
-- The emitter (`Emit/Codegen.lean`, `emitRedv`) generates `redv` keyed on the
-  production index first (a flat `Nat` match), then on the stack shape. For
-  production `p` with RHS length `n`, the arm matches the top `n` stack cells in
-  reverse RHS order (last symbol on top), binds and unwraps the operands, and
-  returns `some (semantic-value, remaining-stack)` — no `List V` is built and no
-  list is matched. A non-matching shape (and any other production index) falls to
-  `(popN (lenData.getD p 0) stk).map (fun r => (sem p r.1, r.2))`, the `popN`+`sem`
-  composite, computed from the top-level arrays (not through `flat`, which would be
-  a definitional cycle).
-- `Runtime.Exec.popNsem f p stk` names that composite; `reduceInline` is
-  definitionally `reduceRedv` with `f.redv` replaced by `popNsem f`. So the emitted
-  obligation is `redvMatches : flat.redv p stk = popNsem flat p stk`, proved by
-  `fun_cases redv p <;> simp only [redv] <;> (first | rfl | (split <;> rfl))`. Keying
-  `redv` on `p` first is what makes this cheap: `fun_cases` splits on the production
-  index only (a flat `Nat` match), not the deeply nested stack shapes. Casing the
-  merged nested match instead took ~2m36s on a 72-production grammar; the flat-on-`p`
-  form is ~8 s. Because the fallback *is* `popN`+`sem`, `redvMatches` holds for
-  matched shapes and fallbacks alike, so no arm is left over.
-- Given `redvMatches`, the library proves `reduceRedv_eq`, `stepRedv_eq`,
-  `parseFixRedv_eq`, `runRedv_eq_runInline`, and `runRedv_eq_run` generically. The
-  emitter's `run` now calls `Exec.runRedv flat`, and `CodegenVerified.lean` bridges
-  `parserRunRefines` with `runRedv_eq_run flat redvMatches`. All of this carries only
-  `propext`/`Quot.sound` — **no new axioms** beyond the per-grammar `native_decide`
-  already present, and no `sorry`. Verified end-to-end (full `parser_sound`/
-  `parser_err_free`/`parser_complete`/`parser_unambiguous`/`parse_eq_dependent`, same
-  axiom budget) for calc, imp, cedarschema, cedar, and c99.
+- **Stack of unboxed cells.** The specification stack is
+  `List (Nat × (Span × V))`: a cons, two pairs, a `Span` and a `V` box per cell. The
+  generated parser defines `Stk`, one cell constructor per semantic type
+  (`cUnit` for `Unit`, `c<i>` for the type of `V.v<i>`), holding the state, the two
+  span offsets, the unwrapped value and the tail. A cell is one object. A reduce no
+  longer allocates the merged `Span`: the offsets are fields, and a `Span` is rebuilt
+  only if the action mentions `x_span`.
+- **Lazy decoding.** The old `run` was `runRedv flat (input.map decode)`, a second
+  list as long as the input, and `step` re-decoded the lookahead on every step
+  (`input.getD 0 eof` builds a pair). The engine reads the `List (Positioned Tok)`
+  directly: `termOf : Tok → Nat` for the lookahead, and the `pushTok` operation to
+  push a shifted token's cell. `decode` is kept as `decodeWith termOf valOf` for the
+  refinement.
+- **One tail-recursive loop on a `Nat` fuel.** `goFast fuel stk input` loops with
+  `goto`, with no `Sum` or `Prod` per step. `parseFixInline_eq_iter` shows the
+  logarithmic-fuel `parseFix n` equals `iterInline (2^n)`, `n` steps one at a time,
+  so `runFast` starts with fuel `2^logNSteps` and the timeout semantics are the
+  same.
+- **Fused reduce.** `fuse<p> : Stk → Stk` matches the top cells of production `p`,
+  binds the operands, builds the value, looks up the goto state and returns the new
+  stack, in one call. It replaces `redv` (an `Option`, a pair) plus the `Sum`
+  around the goto. `fuse` dispatches on `p` through a balanced tree of
+  `Runtime.Exec.fuseIf` (about eight comparisons for Cedar's 144 productions, direct
+  calls). A `Nat` literal `match` compiles to a chain of comparisons, and an array of
+  closures costs `lean_apply_1` plus a bounds check; the tree measured 7 µs/policy
+  faster than the array on Cedar parse-only (55 → 48).
+- **Decline marker.** A fused reduce declines (shape mismatch, no goto entry, the
+  augmented production) by returning `Stk.fail stk` with the original stack inside.
+  The engine then reduces through the specification's `reduceInline` on
+  `unfail`. Returning `nil` and keeping a second reference to `stk` for the fallback
+  made the stack shared at the call, so the matched cells could not be freed or
+  reused in place; the marker costs an allocation only on the path that is taken
+  once per parse (the augmented production). The failure value is passed to
+  `pushGotoWith` as `fun _ => .fail stk`; passing it by value built the marker on
+  every reduce and made parse-only 40% slower.
+- **Specialization.** `StackOps W T S` is a type class and `goFast` is
+  `@[specialize]`, so the generated `run` gets a copy of the loop with direct calls
+  to `fuse`, `Stk.top` and `Stk.pushTok`. With `StackOps` as an explicit structure
+  argument the same loop went through `lean_apply_1`/`lean_apply_2` closures on
+  every step and was 14% slower.
 
-Measured: across the
-inline→redv steps, Cedar parse-only (full 28-policy corpus) 160.0 → ~151.5 µs/policy
-(~5.5%). The A/B win is smaller than the no-op ceiling because the real per-
-production `V` construction (user AST building) dominates and cannot be removed, and
-because `redv`'s `Option (V × Stack V)` result still boxes one tuple per reduce; a
-variant that fuses the `goto` into `redv` to drop that box measured ~55 µs but its
-per-production equality proof was fragile, so it was not adopted.
+Proof structure. The generator emits, per grammar, `Stk`, `instance stackOps`,
+`stackLawful : stackOps.Lawful valOf flat.eof.2` (the cell constructors agree with
+`Stk.toList`; all `rfl` or `cases` plus `rfl`), the `fuse<p>`, and one theorem
+`fuseOK<p> : FuseOKAt stackOps flat p fuse<p>` per production. `fuseOK<p>` is
+`unfold; split; apply fuseOKAt_of_pop; rfl`: the library lemma `fuseOKAt_of_pop`
+turns "`popN`+`sem` gives this cell over this tail, and the goto cell is built from
+it" into the two-part statement (a declined result carries the original stack; a
+returned stack is `reduceInline`'s). `fuseOK` is assembled from the `fuseOK<p>` by
+`fuseOK_leaf` and `fuseOK_if` along the same tree as `fuse`. The per-production
+theorems are independent, so Lean can check them in parallel. `CodegenVerified`
+bridges `parserRunRefines` with `runFast_eq_run`, so `parse_eq_dependent` and
+the `parser_*` corollaries keep their statements. `#print axioms` for `parser_sound`,
+`parser_complete`, `parser_unambiguous`, `parser_err_free` and `parse_eq_dependent` on
+Cedar is identical before and after, and so are the `#check` types.
 
-The generated grammars emit `flat`, `redv`, `redvMatches`, and run `runRedv`.
+Measured (same machine, `perf`-guided, native release, 2000 iterations, per policy or
+kernel; the Cedar corpus is `cedar-spec/cedar-benchmarking/corpus`, 28 files):
 
-Abandoned along the way:
-- A fused reduce that returns `Result V ⊕ Stack V` directly (goto inlined per
-  production, no intermediate `Option`) was ~11% faster than the `Option`-returning
-  `redv` in a fair loop, but the per-arm `reduceRedv = reduceInline` proof had to
-  reconstruct the `goto`/`topState`/array reads defeq-identically to `reduceInline`
-  and was brittle; the clean `redvMatches` (equate `redv` to `popNsem`, not the whole
-  reduce) was kept instead.
+| Corpus | phase | before | after |
+|---|---|---|---|
+| Cedar (28) | parse only | 153 µs | 43 µs |
+| Cedar (28) | lex only | 73 µs | 44 µs |
+| Cedar (28) | lex+parse | 223 µs | 88 µs |
 
-### Parser optimization candidates (untried)
+Cedar parse-only, in the order the changes were made: unboxed stack, lazy decode, the
+fuel loop and the fused reduce, with `StackOps` still a structure argument, 153 →
+73 µs (then 68 with the `Span` offsets as cell fields); `StackOps` as a type class
+with specialization, 54; balanced dispatch tree, 48.5; decline marker, 45; inlining
+`termOf` and `pushTok`, 43. The AST construction in the semantic actions remains, and
+is user code.
 
-Beyond the inline and `redv` engines above, three parser-side candidates target the
-remaining hot spots (parse ~120 us on Cedar: AST construction + `sem` dispatch). None
-is measured yet; recorded with expected effect and proof impact.
+Lexer-side changes made in the same round (§9.6.4 item 3) took Cedar lex-only from 73
+to 44 µs.
 
-- **Unchecked table reads.** The state/goto/action tables are read with `Array.getD`,
-  which bounds-checks every access. The validator already establishes the indices are
-  in range (the `V3`/goto range condition), so an `Array.uget`/`getElem`-with-proof
-  read would drop the per-step branch. Proof impact: `getD` → `uget` changes
-  `FlatTable.toExecTable` and forces an in-range proof threaded through
-  `step`/`parseFix`; the range fact exists but is not free to wire in. `Array.get!`
-  is *not* the win — it still bounds-checks (panics instead of defaulting).
+Proof-check and compile times did not move. `lake env lean` wall time on the
+verified modules, before → after: Calc 2.1 → 2.1 s, Imp 3.6 → 3.6 s, Cedar 17.8 →
+18.0 s, CedarSchema 10.1 → 10.1 s, CedarEntities 4.4 → 4.4 s, C99 30.2 → 30.4 s. The
+executable parser modules compile faster, because the `redv` match over nested stack
+shapes and its `fun_cases` proof are gone: `CedarSchemaParser` 17 → 10 s, C99
+parser 57 → 25 s (lake job times, 32 cores).
 
-- **Specialize `V` with unboxed payloads.** `V` is a sum with one constructor per
-  distinct semantic type (44 for Cedar); each reduce boxes a `V`. Carrying unboxed
-  `UInt32` payloads where the AST does cuts per-reduce boxing. Touches the generated
-  `V` and every `sem` arm, re-checked by the existing refinement `native_decide`
-  (`parse_eq_dependent`) — no new theorem shape, but a large codegen change whose win
-  depends on how many reduces carry currently-boxed payloads.
+Removed: the `redv` field of `FlatTable`, `reduceRedv`/`stepRedv`/`parseFixRedv`/
+`runRedv`, the `redvMatches` obligation, and `emitRedv`. `popNsem` stays, since the
+fused-reduce lemma is stated with it.
 
-- **Default-reduction chain collapse.** `stepRedv` consults `defRedData` then
-  `actionData` each step; a state with a default reduction still re-enters
-  `parseFixRedv` through the `Result ⊕ (Stack × input)` sum. Collapsing a chain of
-  default reductions into one loop iteration removes per-reduce fuel-recursion
-  overhead. Proof impact: it changes `parseFixRedv`, so `runRedv_eq_run` must be
-  re-proved for the collapsed loop (a bounded-unrolling lemma: `n` default reduces =
-  `n` single steps). Only helps grammars with long default-reduce chains — worth
-  profiling the Cedar default-reduce fraction first.
+Abandoned in this round:
+- The `Array` stack of §9.6.2 was not retried. A unique in-place array needs the
+  linearity argument that §9.6.2 recorded as out of reach, and the cons-cell stack
+  with inline fields already allocates one object per cell.
+- A `fuse` stored as an array of closures (`fuseArr.getD p`) and dispatched through
+  `lean_apply_1`: slower than the tree, see above.
 
-A fourth idea — an `Array`/`ST` parser stack — is not pursued: §9.6.2 measured the
-naive array stack at 2x slower (non-unique reference, copy per push/shrink), and a
-genuinely linear `ST` stack needs the mutable engine proved equal to pure `runRedv`,
-more than the current thin `FlatTable` equivalences. The `redv` ceiling data show AST
-construction dominates the remainder, so this is likely low payoff.
+Candidates not tried:
+- Pack `actionData` into an `Array Nat` of tagged scalars. The table read is one
+  pointer chase to an `Act` object. I did not measure the gain; the samples in
+  `goFast` are mostly at the token-kind switch and the reference-count tests.
+- A parser that pulls tokens from the lexer instead of reading a list. It removes the
+  `Positioned`, `Span` and cons cell per token (three allocations plus the reverse of
+  the accumulator). I did not measure it; the lexer's allocation and free calls are
+  about half of lex-only time. It needs a new entry
+  point and its own equivalence theorem with `tokenize` followed by `parse`,
+  including the order in which lexer and parser errors are reported.
 
 ### `%option compress_tables`: compressed table literals for the executable parser
 

@@ -27,7 +27,7 @@ open SpanUseParser Runtime
 /-! An action that reads `x_span`. The `spanuse` grammar's first rule
     `start ::= w=WORD { w_span.endPos.byteIdx - w_span.startPos.byteIdx }` returns
     the byte width of the WORD token's span; the second rule `w=WORD DOT { w }`
-    ignores the spans entirely. The generated `sem`/`redv` bind `w_span` (and the
+    ignores the spans entirely. The generated `sem`/`fuse<p>` bind `w_span` (and the
     unused DOT span) with the unused-variable linter disabled, so the
     span-ignoring rule compiles without a warning — this module building is that
     check. -/

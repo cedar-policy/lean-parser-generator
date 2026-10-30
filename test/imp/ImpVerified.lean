@@ -1939,8 +1939,10 @@ theorem parserRunRefines (input : List grammarInst.Token) (logNSteps : Nat) :
       (ImpParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
   have hrun : ImpParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps
       = Runtime.Exec.run ImpParser.table (input.map executableRefinement.decode) logNSteps := by
-    simp only [ImpParser.run, ImpParser.table, executableRefinement, List.map_map,
-      Runtime.Exec.runRedv_eq_run ImpParser.flat ImpParser.redvMatches]
+    simp only [ImpParser.run]
+    rw [Runtime.Exec.runFast_eq_run ImpParser.stackOps ImpParser.flat ImpParser.fuse
+      ImpParser.termOf ImpParser.valOf ImpParser.stackLawful ImpParser.fuseOK]
+    simp only [ImpParser.table, executableRefinement, List.map_map]
     rfl
   rw [hrun]
   simpa [executableRefinement] using

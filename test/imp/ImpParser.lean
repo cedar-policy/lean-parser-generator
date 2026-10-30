@@ -6,6 +6,8 @@ module
 
 public import LeanParserGenerator.Runtime.Exec
 
+public import LeanParserGenerator.Runtime.ExecFast
+
 public import LeanParserGenerator.Runtime.Span
 
 public import LeanParserGenerator.Runtime.Diagnostic
@@ -38,29 +40,56 @@ abbrev VP := Runtime.Span × V
 
 set_option linter.unusedVariables false
 
-def decode : Runtime.Positioned Tok → Nat × VP
-  | ⟨.SKIP, sp⟩ => (0, sp, .unit ())
-  | ⟨.IF, sp⟩ => (1, sp, .unit ())
-  | ⟨.THEN, sp⟩ => (2, sp, .unit ())
-  | ⟨.ELSE, sp⟩ => (3, sp, .unit ())
-  | ⟨.WHILE, sp⟩ => (4, sp, .unit ())
-  | ⟨.DO, sp⟩ => (5, sp, .unit ())
-  | ⟨.TRUE, sp⟩ => (6, sp, .unit ())
-  | ⟨.FALSE, sp⟩ => (7, sp, .unit ())
-  | ⟨.NOT, sp⟩ => (8, sp, .unit ())
-  | ⟨.AND, sp⟩ => (9, sp, .unit ())
-  | ⟨.ASSIGN, sp⟩ => (10, sp, .unit ())
-  | ⟨.SEMI, sp⟩ => (11, sp, .unit ())
-  | ⟨.LPAR, sp⟩ => (12, sp, .unit ())
-  | ⟨.RPAR, sp⟩ => (13, sp, .unit ())
-  | ⟨.PLUS, sp⟩ => (14, sp, .unit ())
-  | ⟨.MINUS, sp⟩ => (15, sp, .unit ())
-  | ⟨.TIMES, sp⟩ => (16, sp, .unit ())
-  | ⟨.LE, sp⟩ => (17, sp, .unit ())
-  | ⟨.EQ, sp⟩ => (18, sp, .unit ())
-  | ⟨.ID x, sp⟩ => (19, sp, .v3 x)
-  | ⟨.NUM x, sp⟩ => (20, sp, .v4 x)
-  | ⟨.EOF, sp⟩ => (22, sp, .unit ())
+@[inline] def termOf : Tok → Nat
+  | .SKIP => 0
+  | .IF => 1
+  | .THEN => 2
+  | .ELSE => 3
+  | .WHILE => 4
+  | .DO => 5
+  | .TRUE => 6
+  | .FALSE => 7
+  | .NOT => 8
+  | .AND => 9
+  | .ASSIGN => 10
+  | .SEMI => 11
+  | .LPAR => 12
+  | .RPAR => 13
+  | .PLUS => 14
+  | .MINUS => 15
+  | .TIMES => 16
+  | .LE => 17
+  | .EQ => 18
+  | .ID _ => 19
+  | .NUM _ => 20
+  | .EOF => 22
+
+def valOf : Tok → V
+  | .SKIP => .unit ()
+  | .IF => .unit ()
+  | .THEN => .unit ()
+  | .ELSE => .unit ()
+  | .WHILE => .unit ()
+  | .DO => .unit ()
+  | .TRUE => .unit ()
+  | .FALSE => .unit ()
+  | .NOT => .unit ()
+  | .AND => .unit ()
+  | .ASSIGN => .unit ()
+  | .SEMI => .unit ()
+  | .LPAR => .unit ()
+  | .RPAR => .unit ()
+  | .PLUS => .unit ()
+  | .MINUS => .unit ()
+  | .TIMES => .unit ()
+  | .LE => .unit ()
+  | .EQ => .unit ()
+  | .ID x => .v3 x
+  | .NUM x => .v4 x
+  | .EOF => .unit ()
+
+def decode : Runtime.Positioned Tok → Nat × VP :=
+  Runtime.Exec.decodeWith termOf valOf
 
 def sem : Nat → List VP → VP
   | 0, [(s_span, .v0 s), (__s1, _), (c_span, .v0 c)] => (Runtime.Span.merge s_span c_span, .v0 (Com.seq s c))
@@ -87,6 +116,110 @@ def sem : Nat → List VP → VP
   | 21, [(n_span, .v4 n)] => (n_span, .v2 (AExp.num n))
   | 22, [x, _] => x
   | _, _ => (Runtime.Span.dummy, .unit ())
+
+/-- The parser stack: one cell constructor per semantic type (`cUnit` for `Unit`),
+    each holding the state, the span offsets, and the unwrapped value. -/
+inductive Stk where
+  | nil
+  | fail (orig : Stk)
+  | cUnit (st : Nat) (b e : String.Pos.Raw) (tl : Stk)
+  | c0 (st : Nat) (b e : String.Pos.Raw) (x : Com) (tl : Stk)
+  | c1 (st : Nat) (b e : String.Pos.Raw) (x : BExp) (tl : Stk)
+  | c2 (st : Nat) (b e : String.Pos.Raw) (x : AExp) (tl : Stk)
+  | c3 (st : Nat) (b e : String.Pos.Raw) (x : String) (tl : Stk)
+  | c4 (st : Nat) (b e : String.Pos.Raw) (x : Int) (tl : Stk)
+
+/-- The specification stack this stack represents. -/
+def Stk.toList : Stk → Runtime.Exec.Stack VP
+  | .nil => []
+  | .fail _ => []
+  | .cUnit st b e tl => (st, (⟨b, e⟩, .unit ())) :: tl.toList
+  | .c0 st b e x tl => (st, (⟨b, e⟩, .v0 x)) :: tl.toList
+  | .c1 st b e x tl => (st, (⟨b, e⟩, .v1 x)) :: tl.toList
+  | .c2 st b e x tl => (st, (⟨b, e⟩, .v2 x)) :: tl.toList
+  | .c3 st b e x tl => (st, (⟨b, e⟩, .v3 x)) :: tl.toList
+  | .c4 st b e x tl => (st, (⟨b, e⟩, .v4 x)) :: tl.toList
+
+def Stk.ofList : Runtime.Exec.Stack VP → Stk
+  | [] => .nil
+  | (st, (sp, .unit _)) :: tl => .cUnit st sp.startPos sp.endPos (Stk.ofList tl)
+  | (st, (sp, .v0 x)) :: tl => .c0 st sp.startPos sp.endPos x (Stk.ofList tl)
+  | (st, (sp, .v1 x)) :: tl => .c1 st sp.startPos sp.endPos x (Stk.ofList tl)
+  | (st, (sp, .v2 x)) :: tl => .c2 st sp.startPos sp.endPos x (Stk.ofList tl)
+  | (st, (sp, .v3 x)) :: tl => .c3 st sp.startPos sp.endPos x (Stk.ofList tl)
+  | (st, (sp, .v4 x)) :: tl => .c4 st sp.startPos sp.endPos x (Stk.ofList tl)
+
+theorem Stk.toList_ofList (l : Runtime.Exec.Stack VP) : (Stk.ofList l).toList = l := by
+  induction l with
+  | nil => rfl
+  | cons hd tl ih =>
+    obtain ⟨st, sp, v⟩ := hd
+    cases v <;> (simp only [Stk.ofList, Stk.toList, ih]; try rfl)
+
+@[inline] def Stk.top (start : Nat) : Stk → Nat
+  | .nil => start
+  | .fail _ => start
+  | .cUnit st _ _ _ => st
+  | .c0 st _ _ _ _ => st
+  | .c1 st _ _ _ _ => st
+  | .c2 st _ _ _ _ => st
+  | .c3 st _ _ _ _ => st
+  | .c4 st _ _ _ _ => st
+
+@[inline] def Stk.isFail : Stk → Bool
+  | .fail _ => true
+  | _ => false
+
+@[inline] def Stk.unfail : Stk → Stk
+  | .fail s => s
+  | s => s
+
+def Stk.accept : Stk → Runtime.Exec.Result VP
+  | .nil => .err "accept on empty stack"
+  | .fail _ => .err "accept on empty stack"
+  | .cUnit _ b e _ => .ok (⟨b, e⟩, .unit ())
+  | .c0 _ b e x _ => .ok (⟨b, e⟩, .v0 x)
+  | .c1 _ b e x _ => .ok (⟨b, e⟩, .v1 x)
+  | .c2 _ b e x _ => .ok (⟨b, e⟩, .v2 x)
+  | .c3 _ b e x _ => .ok (⟨b, e⟩, .v3 x)
+  | .c4 _ b e x _ => .ok (⟨b, e⟩, .v4 x)
+
+@[inline] def Stk.pushTok (st : Nat) (tok : Runtime.Positioned Tok) (tl : Stk) : Stk :=
+  match tok with
+  | ⟨.SKIP, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.IF, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.THEN, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.ELSE, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.WHILE, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.DO, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.TRUE, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.FALSE, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.NOT, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.AND, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.ASSIGN, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.SEMI, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.LPAR, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.RPAR, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.PLUS, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.MINUS, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.TIMES, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.LE, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.EQ, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+  | ⟨.ID x, sp⟩ => .c3 st sp.startPos sp.endPos x tl
+  | ⟨.NUM x, sp⟩ => .c4 st sp.startPos sp.endPos x tl
+  | ⟨.EOF, sp⟩ => .cUnit st sp.startPos sp.endPos tl
+
+instance stackOps : Runtime.Exec.StackOps V Tok Stk where
+  nil := .nil
+  fail := Stk.fail
+  isFail := Stk.isFail
+  unfail := Stk.unfail
+  top := Stk.top
+  pushTok := Stk.pushTok
+  pushEof := fun st tl => Stk.pushTok st ⟨.EOF, Runtime.Span.dummy⟩ tl
+  accept := Stk.accept
+  toList := Stk.toList
+  ofList := Stk.ofList
 
 def actionData : Array Runtime.Exec.Act :=
   #[.shift 2, .shift 4, .error, .error, .shift 5, .error, .error, .error, .error, .error, .error, .error, .error,
@@ -231,77 +364,118 @@ def lhsData : Array Nat :=
 def lenData : Array Nat :=
   #[3, 1, 1, 3, 10, 6, 3, 1, 1, 1, 2, 3, 3, 3, 3, 3, 1, 3, 1, 3, 1, 1, 2]
 
-def redv : Nat → Runtime.Exec.Stack VP → Option (VP × Runtime.Exec.Stack VP)
-  | 0 => fun stk => match stk with
-    | (_, c_span, .v0 c) :: (_, __s1, _) :: (_, s_span, .v0 s) :: __tail => some ((Runtime.Span.merge s_span c_span, .v0 (Com.seq s c)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 0 0) stk).map (fun r => (sem 0 r.1, r.2))
-  | 1 => fun stk => match stk with
-    | (_, s_span, .v0 s) :: __tail => some ((s_span, .v0 (s)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 1 0) stk).map (fun r => (sem 1 r.1, r.2))
-  | 2 => fun stk => match stk with
-    | (_, __s0, _) :: __tail => some ((__s0, .v0 (Com.skip)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 2 0) stk).map (fun r => (sem 2 r.1, r.2))
-  | 3 => fun stk => match stk with
-    | (_, a_span, .v2 a) :: (_, __s1, _) :: (_, x_span, .v3 x) :: __tail => some ((Runtime.Span.merge x_span a_span, .v0 (Com.assign x a)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 3 0) stk).map (fun r => (sem 3 r.1, r.2))
-  | 4 => fun stk => match stk with
-    | (_, __s9, _) :: (_, c2_span, .v0 c2) :: (_, __s7, _) :: (_, __s6, _) :: (_, __s5, _) :: (_, c1_span, .v0 c1) :: (_, __s3, _) :: (_, __s2, _) :: (_, b_span, .v1 b) :: (_, __s0, _) :: __tail => some ((Runtime.Span.merge __s0 __s9, .v0 (Com.ite b c1 c2)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 4 0) stk).map (fun r => (sem 4 r.1, r.2))
-  | 5 => fun stk => match stk with
-    | (_, __s5, _) :: (_, c_span, .v0 c) :: (_, __s3, _) :: (_, __s2, _) :: (_, b_span, .v1 b) :: (_, __s0, _) :: __tail => some ((Runtime.Span.merge __s0 __s5, .v0 (Com.while b c)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 5 0) stk).map (fun r => (sem 5 r.1, r.2))
-  | 6 => fun stk => match stk with
-    | (_, c_span, .v1 c) :: (_, __s1, _) :: (_, b_span, .v1 b) :: __tail => some ((Runtime.Span.merge b_span c_span, .v1 (BExp.and b c)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 6 0) stk).map (fun r => (sem 6 r.1, r.2))
-  | 7 => fun stk => match stk with
-    | (_, b_span, .v1 b) :: __tail => some ((b_span, .v1 (b)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 7 0) stk).map (fun r => (sem 7 r.1, r.2))
-  | 8 => fun stk => match stk with
-    | (_, __s0, _) :: __tail => some ((__s0, .v1 (BExp.tru)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 8 0) stk).map (fun r => (sem 8 r.1, r.2))
-  | 9 => fun stk => match stk with
-    | (_, __s0, _) :: __tail => some ((__s0, .v1 (BExp.fls)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 9 0) stk).map (fun r => (sem 9 r.1, r.2))
-  | 10 => fun stk => match stk with
-    | (_, b_span, .v1 b) :: (_, __s0, _) :: __tail => some ((Runtime.Span.merge __s0 b_span, .v1 (BExp.not b)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 10 0) stk).map (fun r => (sem 10 r.1, r.2))
-  | 11 => fun stk => match stk with
-    | (_, a2_span, .v2 a2) :: (_, __s1, _) :: (_, a1_span, .v2 a1) :: __tail => some ((Runtime.Span.merge a1_span a2_span, .v1 (BExp.le a1 a2)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 11 0) stk).map (fun r => (sem 11 r.1, r.2))
-  | 12 => fun stk => match stk with
-    | (_, a2_span, .v2 a2) :: (_, __s1, _) :: (_, a1_span, .v2 a1) :: __tail => some ((Runtime.Span.merge a1_span a2_span, .v1 (BExp.eq a1 a2)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 12 0) stk).map (fun r => (sem 12 r.1, r.2))
-  | 13 => fun stk => match stk with
-    | (_, __s2, _) :: (_, b_span, .v1 b) :: (_, __s0, _) :: __tail => some ((Runtime.Span.merge __s0 __s2, .v1 (b)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 13 0) stk).map (fun r => (sem 13 r.1, r.2))
-  | 14 => fun stk => match stk with
-    | (_, t_span, .v2 t) :: (_, __s1, _) :: (_, a_span, .v2 a) :: __tail => some ((Runtime.Span.merge a_span t_span, .v2 (AExp.add a t)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 14 0) stk).map (fun r => (sem 14 r.1, r.2))
-  | 15 => fun stk => match stk with
-    | (_, t_span, .v2 t) :: (_, __s1, _) :: (_, a_span, .v2 a) :: __tail => some ((Runtime.Span.merge a_span t_span, .v2 (AExp.sub a t)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 15 0) stk).map (fun r => (sem 15 r.1, r.2))
-  | 16 => fun stk => match stk with
-    | (_, t_span, .v2 t) :: __tail => some ((t_span, .v2 (t)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 16 0) stk).map (fun r => (sem 16 r.1, r.2))
-  | 17 => fun stk => match stk with
-    | (_, f_span, .v2 f) :: (_, __s1, _) :: (_, t_span, .v2 t) :: __tail => some ((Runtime.Span.merge t_span f_span, .v2 (AExp.mul t f)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 17 0) stk).map (fun r => (sem 17 r.1, r.2))
-  | 18 => fun stk => match stk with
-    | (_, f_span, .v2 f) :: __tail => some ((f_span, .v2 (f)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 18 0) stk).map (fun r => (sem 18 r.1, r.2))
-  | 19 => fun stk => match stk with
-    | (_, __s2, _) :: (_, a_span, .v2 a) :: (_, __s0, _) :: __tail => some ((Runtime.Span.merge __s0 __s2, .v2 (a)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 19 0) stk).map (fun r => (sem 19 r.1, r.2))
-  | 20 => fun stk => match stk with
-    | (_, x_span, .v3 x) :: __tail => some ((x_span, .v2 (AExp.var x)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 20 0) stk).map (fun r => (sem 20 r.1, r.2))
-  | 21 => fun stk => match stk with
-    | (_, n_span, .v4 n) :: __tail => some ((n_span, .v2 (AExp.num n)), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 21 0) stk).map (fun r => (sem 21 r.1, r.2))
-  | 22 => fun stk => match stk with
-    | (_, _, _) :: (_, x_span, x) :: __tail => some ((x_span, x), __tail)
-    | stk => (Runtime.Exec.popN (lenData.getD 22 0) stk).map (fun r => (sem 22 r.1, r.2))
-  | p => fun stk => (Runtime.Exec.popN (lenData.getD p 0) stk).map (fun r => (sem p r.1, r.2))
+def fuse0 : Stk → Stk :=
+  fun stk => match stk with
+    | .c0 _ c_span__b c_span__e c (.cUnit _ __s1__b __s1__e (.c0 _ s_span__b s_span__e s (__tail))) => let s_span : Runtime.Span := ⟨s_span__b, s_span__e⟩; let c_span : Runtime.Span := ⟨c_span__b, c_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 0 (Stk.top 0 __tail) (fun __st => .c0 __st s_span__b c_span__e (Com.seq s c) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse1 : Stk → Stk :=
+  fun stk => match stk with
+    | .c0 _ s_span__b s_span__e s (__tail) => let s_span : Runtime.Span := ⟨s_span__b, s_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 0 (Stk.top 0 __tail) (fun __st => .c0 __st s_span__b s_span__e (s) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse2 : Stk → Stk :=
+  fun stk => match stk with
+    | .cUnit _ __s0__b __s0__e (__tail) => Runtime.Exec.pushGotoWith gotoData 8 1 (Stk.top 0 __tail) (fun __st => .c0 __st __s0__b __s0__e (Com.skip) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse3 : Stk → Stk :=
+  fun stk => match stk with
+    | .c2 _ a_span__b a_span__e a (.cUnit _ __s1__b __s1__e (.c3 _ x_span__b x_span__e x (__tail))) => let x_span : Runtime.Span := ⟨x_span__b, x_span__e⟩; let a_span : Runtime.Span := ⟨a_span__b, a_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 1 (Stk.top 0 __tail) (fun __st => .c0 __st x_span__b a_span__e (Com.assign x a) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse4 : Stk → Stk :=
+  fun stk => match stk with
+    | .cUnit _ __s9__b __s9__e (.c0 _ c2_span__b c2_span__e c2 (.cUnit _ __s7__b __s7__e (.cUnit _ __s6__b __s6__e (.cUnit _ __s5__b __s5__e (.c0 _ c1_span__b c1_span__e c1 (.cUnit _ __s3__b __s3__e (.cUnit _ __s2__b __s2__e (.c1 _ b_span__b b_span__e b (.cUnit _ __s0__b __s0__e (__tail)))))))))) => let b_span : Runtime.Span := ⟨b_span__b, b_span__e⟩; let c1_span : Runtime.Span := ⟨c1_span__b, c1_span__e⟩; let c2_span : Runtime.Span := ⟨c2_span__b, c2_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 1 (Stk.top 0 __tail) (fun __st => .c0 __st __s0__b __s9__e (Com.ite b c1 c2) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse5 : Stk → Stk :=
+  fun stk => match stk with
+    | .cUnit _ __s5__b __s5__e (.c0 _ c_span__b c_span__e c (.cUnit _ __s3__b __s3__e (.cUnit _ __s2__b __s2__e (.c1 _ b_span__b b_span__e b (.cUnit _ __s0__b __s0__e (__tail)))))) => let b_span : Runtime.Span := ⟨b_span__b, b_span__e⟩; let c_span : Runtime.Span := ⟨c_span__b, c_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 1 (Stk.top 0 __tail) (fun __st => .c0 __st __s0__b __s5__e (Com.while b c) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse6 : Stk → Stk :=
+  fun stk => match stk with
+    | .c1 _ c_span__b c_span__e c (.cUnit _ __s1__b __s1__e (.c1 _ b_span__b b_span__e b (__tail))) => let b_span : Runtime.Span := ⟨b_span__b, b_span__e⟩; let c_span : Runtime.Span := ⟨c_span__b, c_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 2 (Stk.top 0 __tail) (fun __st => .c1 __st b_span__b c_span__e (BExp.and b c) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse7 : Stk → Stk :=
+  fun stk => match stk with
+    | .c1 _ b_span__b b_span__e b (__tail) => let b_span : Runtime.Span := ⟨b_span__b, b_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 2 (Stk.top 0 __tail) (fun __st => .c1 __st b_span__b b_span__e (b) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse8 : Stk → Stk :=
+  fun stk => match stk with
+    | .cUnit _ __s0__b __s0__e (__tail) => Runtime.Exec.pushGotoWith gotoData 8 3 (Stk.top 0 __tail) (fun __st => .c1 __st __s0__b __s0__e (BExp.tru) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse9 : Stk → Stk :=
+  fun stk => match stk with
+    | .cUnit _ __s0__b __s0__e (__tail) => Runtime.Exec.pushGotoWith gotoData 8 3 (Stk.top 0 __tail) (fun __st => .c1 __st __s0__b __s0__e (BExp.fls) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse10 : Stk → Stk :=
+  fun stk => match stk with
+    | .c1 _ b_span__b b_span__e b (.cUnit _ __s0__b __s0__e (__tail)) => let b_span : Runtime.Span := ⟨b_span__b, b_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 3 (Stk.top 0 __tail) (fun __st => .c1 __st __s0__b b_span__e (BExp.not b) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse11 : Stk → Stk :=
+  fun stk => match stk with
+    | .c2 _ a2_span__b a2_span__e a2 (.cUnit _ __s1__b __s1__e (.c2 _ a1_span__b a1_span__e a1 (__tail))) => let a1_span : Runtime.Span := ⟨a1_span__b, a1_span__e⟩; let a2_span : Runtime.Span := ⟨a2_span__b, a2_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 3 (Stk.top 0 __tail) (fun __st => .c1 __st a1_span__b a2_span__e (BExp.le a1 a2) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse12 : Stk → Stk :=
+  fun stk => match stk with
+    | .c2 _ a2_span__b a2_span__e a2 (.cUnit _ __s1__b __s1__e (.c2 _ a1_span__b a1_span__e a1 (__tail))) => let a1_span : Runtime.Span := ⟨a1_span__b, a1_span__e⟩; let a2_span : Runtime.Span := ⟨a2_span__b, a2_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 3 (Stk.top 0 __tail) (fun __st => .c1 __st a1_span__b a2_span__e (BExp.eq a1 a2) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse13 : Stk → Stk :=
+  fun stk => match stk with
+    | .cUnit _ __s2__b __s2__e (.c1 _ b_span__b b_span__e b (.cUnit _ __s0__b __s0__e (__tail))) => let b_span : Runtime.Span := ⟨b_span__b, b_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 3 (Stk.top 0 __tail) (fun __st => .c1 __st __s0__b __s2__e (b) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse14 : Stk → Stk :=
+  fun stk => match stk with
+    | .c2 _ t_span__b t_span__e t (.cUnit _ __s1__b __s1__e (.c2 _ a_span__b a_span__e a (__tail))) => let a_span : Runtime.Span := ⟨a_span__b, a_span__e⟩; let t_span : Runtime.Span := ⟨t_span__b, t_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 4 (Stk.top 0 __tail) (fun __st => .c2 __st a_span__b t_span__e (AExp.add a t) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse15 : Stk → Stk :=
+  fun stk => match stk with
+    | .c2 _ t_span__b t_span__e t (.cUnit _ __s1__b __s1__e (.c2 _ a_span__b a_span__e a (__tail))) => let a_span : Runtime.Span := ⟨a_span__b, a_span__e⟩; let t_span : Runtime.Span := ⟨t_span__b, t_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 4 (Stk.top 0 __tail) (fun __st => .c2 __st a_span__b t_span__e (AExp.sub a t) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse16 : Stk → Stk :=
+  fun stk => match stk with
+    | .c2 _ t_span__b t_span__e t (__tail) => let t_span : Runtime.Span := ⟨t_span__b, t_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 4 (Stk.top 0 __tail) (fun __st => .c2 __st t_span__b t_span__e (t) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse17 : Stk → Stk :=
+  fun stk => match stk with
+    | .c2 _ f_span__b f_span__e f (.cUnit _ __s1__b __s1__e (.c2 _ t_span__b t_span__e t (__tail))) => let t_span : Runtime.Span := ⟨t_span__b, t_span__e⟩; let f_span : Runtime.Span := ⟨f_span__b, f_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 5 (Stk.top 0 __tail) (fun __st => .c2 __st t_span__b f_span__e (AExp.mul t f) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse18 : Stk → Stk :=
+  fun stk => match stk with
+    | .c2 _ f_span__b f_span__e f (__tail) => let f_span : Runtime.Span := ⟨f_span__b, f_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 5 (Stk.top 0 __tail) (fun __st => .c2 __st f_span__b f_span__e (f) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse19 : Stk → Stk :=
+  fun stk => match stk with
+    | .cUnit _ __s2__b __s2__e (.c2 _ a_span__b a_span__e a (.cUnit _ __s0__b __s0__e (__tail))) => let a_span : Runtime.Span := ⟨a_span__b, a_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 6 (Stk.top 0 __tail) (fun __st => .c2 __st __s0__b __s2__e (a) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse20 : Stk → Stk :=
+  fun stk => match stk with
+    | .c3 _ x_span__b x_span__e x (__tail) => let x_span : Runtime.Span := ⟨x_span__b, x_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 6 (Stk.top 0 __tail) (fun __st => .c2 __st x_span__b x_span__e (AExp.var x) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse21 : Stk → Stk :=
+  fun stk => match stk with
+    | .c4 _ n_span__b n_span__e n (__tail) => let n_span : Runtime.Span := ⟨n_span__b, n_span__e⟩; Runtime.Exec.pushGotoWith gotoData 8 6 (Stk.top 0 __tail) (fun __st => .c2 __st n_span__b n_span__e (AExp.num n) __tail) (fun _ => .fail stk)
+    | _ => .fail stk
+
+def fuse : Nat → Stk → Stk :=
+  (Runtime.Exec.fuseIf 11 (Runtime.Exec.fuseIf 5 (Runtime.Exec.fuseIf 2 (Runtime.Exec.fuseIf 1 (Runtime.Exec.fuseLeaf stackOps 0 fuse0) (Runtime.Exec.fuseLeaf stackOps 1 fuse1)) (Runtime.Exec.fuseIf 3 (Runtime.Exec.fuseLeaf stackOps 2 fuse2) (Runtime.Exec.fuseIf 4 (Runtime.Exec.fuseLeaf stackOps 3 fuse3) (Runtime.Exec.fuseLeaf stackOps 4 fuse4)))) (Runtime.Exec.fuseIf 8 (Runtime.Exec.fuseIf 6 (Runtime.Exec.fuseLeaf stackOps 5 fuse5) (Runtime.Exec.fuseIf 7 (Runtime.Exec.fuseLeaf stackOps 6 fuse6) (Runtime.Exec.fuseLeaf stackOps 7 fuse7))) (Runtime.Exec.fuseIf 9 (Runtime.Exec.fuseLeaf stackOps 8 fuse8) (Runtime.Exec.fuseIf 10 (Runtime.Exec.fuseLeaf stackOps 9 fuse9) (Runtime.Exec.fuseLeaf stackOps 10 fuse10))))) (Runtime.Exec.fuseIf 16 (Runtime.Exec.fuseIf 13 (Runtime.Exec.fuseIf 12 (Runtime.Exec.fuseLeaf stackOps 11 fuse11) (Runtime.Exec.fuseLeaf stackOps 12 fuse12)) (Runtime.Exec.fuseIf 14 (Runtime.Exec.fuseLeaf stackOps 13 fuse13) (Runtime.Exec.fuseIf 15 (Runtime.Exec.fuseLeaf stackOps 14 fuse14) (Runtime.Exec.fuseLeaf stackOps 15 fuse15)))) (Runtime.Exec.fuseIf 19 (Runtime.Exec.fuseIf 17 (Runtime.Exec.fuseLeaf stackOps 16 fuse16) (Runtime.Exec.fuseIf 18 (Runtime.Exec.fuseLeaf stackOps 17 fuse17) (Runtime.Exec.fuseLeaf stackOps 18 fuse18))) (Runtime.Exec.fuseIf 20 (Runtime.Exec.fuseLeaf stackOps 19 fuse19) (Runtime.Exec.fuseIf 21 (Runtime.Exec.fuseLeaf stackOps 20 fuse20) (Runtime.Exec.fuseLeaf stackOps 21 fuse21))))))
 
 def flat : Runtime.Exec.FlatTable VP := {
   numStates := 55
@@ -315,27 +489,224 @@ def flat : Runtime.Exec.FlatTable VP := {
   lhsData := lhsData
   lenData := lenData
   sem := sem
-  redv := redv
 }
 
 def table : Runtime.Exec.ExecTable VP := flat.toExecTable
 
-set_option linter.unusedSimpArgs false in
-theorem redvMatches (p : Nat) (stk : Runtime.Exec.Stack VP) :
-    flat.redv p stk = Runtime.Exec.popNsem flat p stk := by
-  show redv p stk = Runtime.Exec.popNsem flat p stk
-  unfold Runtime.Exec.popNsem
-  fun_cases redv p <;> simp only [redv] <;>
-    (first
-      | rfl
-      | (split <;>
-          (first
-            | rfl
-            | simp [flat, lenData, Runtime.Exec.popN, Runtime.Exec.popN.go, sem])))
+theorem stackLawful : stackOps.Lawful valOf flat.eof.2 where
+  toList_nil := rfl
+  isFail_fail := fun _ => rfl
+  unfail_fail := fun _ => rfl
+  top_eq := by intro start s; cases s <;> rfl
+  pushTok_eq := by intro st tok s; obtain ⟨v, sp⟩ := tok; cases v <;> rfl
+  pushEof_eq := by intro st s; rfl
+  accept_eq := by intro s; cases s <;> rfl
+  toList_ofList := Stk.toList_ofList
+
+theorem fuseOK0 : Runtime.Exec.FuseOKAt stackOps flat 0 fuse0 := by
+  intro stk
+  unfold fuse0
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 0
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK1 : Runtime.Exec.FuseOKAt stackOps flat 1 fuse1 := by
+  intro stk
+  unfold fuse1
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 1
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK2 : Runtime.Exec.FuseOKAt stackOps flat 2 fuse2 := by
+  intro stk
+  unfold fuse2
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 2
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK3 : Runtime.Exec.FuseOKAt stackOps flat 3 fuse3 := by
+  intro stk
+  unfold fuse3
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 3
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK4 : Runtime.Exec.FuseOKAt stackOps flat 4 fuse4 := by
+  intro stk
+  unfold fuse4
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 4
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK5 : Runtime.Exec.FuseOKAt stackOps flat 5 fuse5 := by
+  intro stk
+  unfold fuse5
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 5
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK6 : Runtime.Exec.FuseOKAt stackOps flat 6 fuse6 := by
+  intro stk
+  unfold fuse6
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 6
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK7 : Runtime.Exec.FuseOKAt stackOps flat 7 fuse7 := by
+  intro stk
+  unfold fuse7
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 7
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK8 : Runtime.Exec.FuseOKAt stackOps flat 8 fuse8 := by
+  intro stk
+  unfold fuse8
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 8
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK9 : Runtime.Exec.FuseOKAt stackOps flat 9 fuse9 := by
+  intro stk
+  unfold fuse9
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 9
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK10 : Runtime.Exec.FuseOKAt stackOps flat 10 fuse10 := by
+  intro stk
+  unfold fuse10
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 10
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK11 : Runtime.Exec.FuseOKAt stackOps flat 11 fuse11 := by
+  intro stk
+  unfold fuse11
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 11
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK12 : Runtime.Exec.FuseOKAt stackOps flat 12 fuse12 := by
+  intro stk
+  unfold fuse12
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 12
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK13 : Runtime.Exec.FuseOKAt stackOps flat 13 fuse13 := by
+  intro stk
+  unfold fuse13
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 13
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK14 : Runtime.Exec.FuseOKAt stackOps flat 14 fuse14 := by
+  intro stk
+  unfold fuse14
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 14
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK15 : Runtime.Exec.FuseOKAt stackOps flat 15 fuse15 := by
+  intro stk
+  unfold fuse15
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 15
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK16 : Runtime.Exec.FuseOKAt stackOps flat 16 fuse16 := by
+  intro stk
+  unfold fuse16
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 16
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK17 : Runtime.Exec.FuseOKAt stackOps flat 17 fuse17 := by
+  intro stk
+  unfold fuse17
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 17
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK18 : Runtime.Exec.FuseOKAt stackOps flat 18 fuse18 := by
+  intro stk
+  unfold fuse18
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 18
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK19 : Runtime.Exec.FuseOKAt stackOps flat 19 fuse19 := by
+  intro stk
+  unfold fuse19
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 19
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK20 : Runtime.Exec.FuseOKAt stackOps flat 20 fuse20 := by
+  intro stk
+  unfold fuse20
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 20
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK21 : Runtime.Exec.FuseOKAt stackOps flat 21 fuse21 := by
+  intro stk
+  unfold fuse21
+  split
+  · try dsimp only
+    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat 21
+    all_goals first | exact fun _ => rfl | rfl
+  · exact ⟨fun _ => rfl, fun h => by cases h⟩
+
+theorem fuseOK : Runtime.Exec.FuseOK stackOps flat fuse :=
+  (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK0) (Runtime.Exec.fuseOK_leaf stackLawful fuseOK1)) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK2) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK3) (Runtime.Exec.fuseOK_leaf stackLawful fuseOK4)))) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK5) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK6) (Runtime.Exec.fuseOK_leaf stackLawful fuseOK7))) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK8) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK9) (Runtime.Exec.fuseOK_leaf stackLawful fuseOK10))))) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK11) (Runtime.Exec.fuseOK_leaf stackLawful fuseOK12)) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK13) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK14) (Runtime.Exec.fuseOK_leaf stackLawful fuseOK15)))) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK16) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK17) (Runtime.Exec.fuseOK_leaf stackLawful fuseOK18))) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK19) (Runtime.Exec.fuseOK_if (Runtime.Exec.fuseOK_leaf stackLawful fuseOK20) (Runtime.Exec.fuseOK_leaf stackLawful fuseOK21))))))
 
 @[export impparser_run]
 def run (input : List (Runtime.Positioned Tok)) (logNSteps : Nat := 20) : Runtime.Exec.Result VP :=
-  Runtime.Exec.runRedv flat (input.map decode) logNSteps
+  Runtime.Exec.runFast (ops := stackOps) flat fuse termOf input logNSteps
 
 @[export impparser_parse]
 def parse (input : List (Runtime.Positioned Tok)) (logNSteps : Nat := 20) : Option Com :=

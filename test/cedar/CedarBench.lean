@@ -57,7 +57,9 @@ def cedarBenchParse (toks : List (Runtime.Positioned Tok)) (fuel : Nat) : Nat :=
 /-- Throughput benchmark over a Cedar policy corpus given as file-path arguments:
     end-to-end `[lex+parse]`, `[lex only]`, `[parse only]`, and `[byte lex]` (the
     byte scanner vs the flat scanner, with a token-identical check, §9.6.3).
-    Native-compiled via `lake build`; run with `lake exe cedar-bench <files...>`. -/
+    Native-compiled via `lake build`; run with `lake exe cedar-bench <files...>`.
+    `BENCH_ITERS` sets the iteration count; `BENCH_LEX_ONLY` or `BENCH_PARSE_ONLY`
+    (any value) runs only that phase, for profiling. -/
 def main (args : List String) : IO Unit := do
   let mut sources : Array String := #[]
   for p in args do
@@ -76,6 +78,25 @@ def main (args : List String) : IO Unit := do
     let _ := cedarBenchLexParse s fuel
 
   let iters := (← IO.getEnv "BENCH_ITERS").bind (·.toNat?) |>.getD 2000
+  if (← IO.getEnv "BENCH_LEX_ONLY").isSome then
+    let t1 ← IO.monoNanosNow
+    let mut accL : Nat := 0
+    for _ in [0:iters] do
+      for s in sources do
+        accL := accL + cedarBenchLex s
+    let nsL := ((← IO.monoNanosNow) - t1).toFloat
+    IO.println s!"[lex only]  per policy: {(nsL / 1000.0) / (iters * sources.size).toFloat} us (acc={accL})"
+    return
+  if (← IO.getEnv "BENCH_PARSE_ONLY").isSome then
+    let toksArr := sources.map (fun s => (CedarLexer.tokenize s).toOption.getD [])
+    let t2 ← IO.monoNanosNow
+    let mut accP : Nat := 0
+    for _ in [0:iters] do
+      for toks in toksArr do
+        accP := accP + cedarBenchParse toks fuel
+    let nsP := ((← IO.monoNanosNow) - t2).toFloat
+    IO.println s!"[parse only] per policy: {(nsP / 1000.0) / (iters * sources.size).toFloat} us (acc={accP})"
+    return
   let t0 ← IO.monoNanosNow
   let mut acc : Nat := 0
   for _ in [0:iters] do
