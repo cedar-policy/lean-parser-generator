@@ -150,6 +150,25 @@ def planValues (s : Surface) : Except String ValuePlan := do
     argument of `Tok` (`"<'a>"` or `""`). -/
 def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) : Except String String := do
   let lt := if tokLt.isEmpty && !(plan.variants.any (·.contains '\'')) then "" else "<'a>"
+  -- With `%option rust_ctx T`, `parse_values` also takes `ctx: &'a T`, visible in the actions.
+  let fnLt := if lt.isEmpty && s.options.rustCtx.isSome then "<'a>" else lt
+  let ctxParam := match s.options.rustCtx with
+    | some t => s!"\n    ctx: &'a {t},"
+    | none => ""
+  -- Values borrow from the context, so one `Stacks` cannot be reused across contexts
+  -- without changing its lifetime; `recycle` clears the stacks and does exactly that.
+  let ctxImpl := if s.options.rustCtx.isSome && !lt.isEmpty then
+      "\n".intercalate [
+        "    /// Empty the stacks and give them a new lifetime, so that one set of buffers serves",
+        "    /// successive contexts (each parse borrows from its own `ctx`).",
+        "    pub fn recycle<'b>(mut self) -> Stacks<'b> {",
+        "        self.clear();",
+        "        // SAFETY: every stack is empty, so no value of lifetime `'a` remains; the two",
+        "        // types differ only in that lifetime and have the same layout.",
+        "        unsafe { std::mem::transmute::<Stacks<'a>, Stacks<'b>>(self) }",
+        "    }",
+        ""]
+    else ""
   let typed := plan.variants.toList.zipIdx.filter (·.2 != 0)
   let fields := typed.map fun (t, i) => s!"    pub v{i}: Vec<{t}>,"
   let destructure := ", ".intercalate (typed.map fun (_, i) => s!"v{i}: __s{i}")
@@ -194,6 +213,7 @@ def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) 
     "        Self::default()",
     "    }",
     "",
+    ctxImpl,
     "    fn clear(&mut self) {",
     "        self.entries.clear();",
     clears,
@@ -212,16 +232,17 @@ def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) 
     "/// Parse `tokens` and return the value of the start symbol, computed by the Rust actions",
     "/// of the grammar. `stacks` is cleared first.",
     "#[allow(unused_variables, unused_mut, unused_parens, non_snake_case, clippy::all)]",
-    s!"pub fn parse_values{lt}(",
+    s!"pub fn parse_values{fnLt}(",
     s!"    tokens: &[Spanned<{tokName}{tokLt}>],",
-    s!"    stacks: &mut Stacks{lt},",
+    s!"    stacks: &mut Stacks{lt},{ctxParam}",
     s!") -> Result<{plan.startTy}, ParseError> \{",
     "    stacks.clear();",
     "    stacks.entries.push(ValueEntry { state: 0, start: 0, end: 0 });",
     "    let mut ti = 0usize;",
     "    let mut prev_end = 0u32;",
+    "    // The state on top of `stacks.entries`, kept in a register instead of reloaded from it.",
+    "    let mut state = 0usize;",
     "    loop {",
-    "        let state = stacks.entries[stacks.entries.len() - 1].state as usize;",
     "        let dr = DEFAULT_REDUCE[state] as usize;",
     "        let prod = if dr != NONE {",
     "            dr",
@@ -240,6 +261,7 @@ def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) 
     "                    push_payload(stacks, &tokens[ti].tok);",
     "                }",
     "                stacks.entries.push(ValueEntry { state: (a >> 1) as u16, start: tstart, end: tend });",
+    "                state = a >> 1;",
     "                prev_end = tend;",
     "                ti += 1;",
     "                continue;",
@@ -267,6 +289,7 @@ def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) 
     "            return Err(ParseError { token: ti, state, term: u16::MAX });",
     "        }",
     "        __stack.push(ValueEntry { state: __g as u16, start: __start, end: prev_end });",
+    "        state = __g;",
     "    }",
     "}" ]
   return body ++ "\n"

@@ -219,6 +219,8 @@ def rustGrammar : String :=
 %token EOF
 %eof EOF
 %option gen_rust rust/src/generated.rs
+%option rust_ctx crate::ast::Arena
+%option rust_list crate::ast::lists
 %option roundtrip_parser unparse
 %option roundtrip_format renderTok
 %lexer {

@@ -120,6 +120,8 @@ The generator infers the outputs from the input path and writes them next to the
 | `%option module_prefix <path>` | dotted module path | The prefix the generated modules live under inside a larger module tree. With `%option module_prefix myproject.expr` the parser imports its lexer as `myproject.expr.ExprLexer` and a caller imports `myproject.expr.ExprParser`. Without it the modules are top-level. `--module-prefix` overrides it. |
 | `%option compress_tables` | none | Write the executable parser's tables in a compact form. The tables hold the same values at runtime and the proofs are unchanged, but the generated source is smaller and compiles faster. See [`docs/DESIGN.md`](docs/DESIGN.md) §10. |
 | `%option gen_rust <path>` | file path, relative to the `.lig` file | Also write the Rust parser to `<path>`. Experimental. `--rust-out` overrides it. |
+| `%option rust_ctx <type>` | Rust type | The Rust parser passes a context `ctx: &'a <type>` to the `!!rust{…}` actions, for example an arena they allocate the AST from. Experimental, see [`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md). |
+| `%option rust_list <path>` | Rust module path | The list type of the macro rules in the Rust parser is `<path>::List<'a, T>`. Needs `rust_ctx`. Experimental. |
 | `%option roundtrip_lexer` | none | Also write `<Base>LexerRoundtrip.lean`. Experimental, see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md). |
 | `%option roundtrip_parser <function>` | Lean function name | Also write `<Base>ParserRoundtrip.lean`. Experimental. |
 | `%option roundtrip_format <function>` | Lean function name | Add `format`, `relex` and `fullRoundtrip` to the parser roundtrip module. Experimental. |

@@ -1,0 +1,100 @@
+-- The grammar of rustactions.lig again, with its Rust actions allocating from an arena instead
+-- of the heap: `%option rust_ctx` adds a `ctx` argument to `parse_values`, and `%option
+-- rust_list` makes the macro `separated_list(…)` build the arena list of `rust/src/arena.rs`.
+-- The Rust AST is `rust/src/ast_arena.rs` (docs/RUST_PARSER.md).
+%header {
+import rustactions.RustActionsAst
+open RustActions
+}
+%option module_prefix rustactions
+%option gen_rust rust/src/generated_arena.rs
+%option rust_ctx crate::arena::Arena
+%option rust_list crate::arena::lists
+%tokentype Tok
+%token LET PRINT IF THEN ELSE
+%token PLUS MINUS TIMES LPAR RPAR COMMA SEMI EQ AT
+%token <String> IDENT
+%token <String> STR
+%token <Int> NUM
+%token EOF
+%eof EOF
+%lexer {
+  let digit = ['0'-'9']
+  let idstart = ['a'-'z' 'A'-'Z' '_']
+  let idcont = ['a'-'z' 'A'-'Z' '0'-'9' '_']
+  | (' ' | '\t' | '\n' | '\r')+          => skip
+  | "#" [^ '\n']*                        => skip
+  | "let"                                => { Tok.LET }
+  | "print"                              => { Tok.PRINT }
+  | "if"                                 => { Tok.IF }
+  | "then"                               => { Tok.THEN }
+  | "else"                               => { Tok.ELSE }
+  | "+"                                  => { Tok.PLUS }
+  | "-"                                  => { Tok.MINUS }
+  | "*"                                  => { Tok.TIMES }
+  | "("                                  => { Tok.LPAR }
+  | ")"                                  => { Tok.RPAR }
+  | ","                                  => { Tok.COMMA }
+  | ";"                                  => { Tok.SEMI }
+  | "="                                  => { Tok.EQ }
+  | "@"                                  => { Tok.AT }
+  | digit+ as s                          => { Tok.NUM (String.toInt! s) }
+  | idstart idcont* as s                 => { Tok.IDENT s }
+  | '"' [^ '"']* '"' as s                => { Tok.STR s }
+  eof => { Tok.EOF }
+}
+%start program
+%%
+program :: Program !!rust{crate::ast_arena::Program<'a>}
+  | ss=stmts   { Program.mk ss 7 }
+               !!rust{ crate::ast_arena::Program { stmts: ss, count: 7 } }
+stmts :: Stmts !!rust{crate::arena::lists::List<'a, crate::ast_arena::Stmt<'a>>}
+  | s=stmt SEMI rest=stmts { s :: rest }
+                           !!rust{ crate::arena::lists::cons(ctx, s, rest) }
+  |                        { [] }
+                           !!rust{ crate::arena::lists::nil(ctx) }
+stmt :: Stmt !!rust{crate::ast_arena::Stmt<'a>}
+  | LET x=IDENT EQ e=expr   { Stmt.bind { name := x, value := e, index := 1 } }
+                            !!rust{ crate::ast_arena::Stmt::Bind { name: x, value: e, index: 1 } }
+  | PRINT e=expr            { Stmt.print e }
+                            !!rust{ crate::ast_arena::Stmt::Print(e) }
+expr :: Expr !!rust{crate::ast_arena::Expr<'a>}
+  | IF c=sum THEN t=sum ELSE e=sum  { Expr.cond c t (some e) }
+                                    !!rust{ crate::ast_arena::Expr::Cond(ctx.alloc(c), ctx.alloc(t), Some(ctx.alloc(e))) }
+  | IF c=sum THEN t=sum             { Expr.cond c t none }
+                                    !!rust{ crate::ast_arena::Expr::Cond(ctx.alloc(c), ctx.alloc(t), None) }
+  | e=sum                           { e }
+                                    !!rust{ e }
+sum :: Expr !!rust{crate::ast_arena::Expr<'a>}
+  | a=sum PLUS b=prod      { Expr.bin .add a b }
+                           !!rust{ crate::ast_arena::Expr::Bin(crate::ast_arena::Op::Add, ctx.alloc(a), ctx.alloc(b)) }
+  | a=sum MINUS b=prod     { Expr.bin .sub a b }
+                           !!rust{ crate::ast_arena::Expr::Bin(crate::ast_arena::Op::Sub, ctx.alloc(a), ctx.alloc(b)) }
+  | a=prod                 { a }
+                           !!rust{ a }
+prod :: Expr !!rust{crate::ast_arena::Expr<'a>}
+  | a=prod TIMES b=atom    { Expr.bin .mul a b }
+                           !!rust{ crate::ast_arena::Expr::Bin(crate::ast_arena::Op::Mul, ctx.alloc(a), ctx.alloc(b)) }
+  | a=atom                 { a }
+                           !!rust{ a }
+atom :: Expr !!rust{crate::ast_arena::Expr<'a>}
+  | n=NUM                  { Expr.num n }
+                           !!rust{ crate::ast_arena::Expr::Num(n) }
+  | MINUS a=atom           { Expr.neg a }
+                           !!rust{ crate::ast_arena::Expr::Neg(ctx.alloc(a)) }
+  | x=IDENT                { Expr.var x }
+                           !!rust{ crate::ast_arena::Expr::Var(x) }
+  | x=IDENT AT             { Expr.located x x_span }
+                           !!rust{ crate::ast_arena::Expr::Located(x, x_span) }
+  | s=STR                  { Expr.str s }
+                           !!rust{ crate::ast_arena::Expr::Str(s) }
+  | s=STR AT               { Expr.len s.length }
+                           !!rust{ crate::ast_arena::Expr::Len(s.chars().count() as u64) }
+  | f=IDENT LPAR args=separated_list(COMMA, expr) RPAR { Expr.call f args }
+                                !!rust{ crate::ast_arena::Expr::Call(f, args) }
+  | LPAR a=expr COMMA b=expr RPAR { Expr.pair (a, b) }
+                                  !!rust{ crate::ast_arena::Expr::Pair(ctx.alloc((a, b))) }
+  | LPAR a=expr COMMA b=expr COMMA c=expr RPAR { Expr.triple (a, b, c) }
+                                               !!rust{ crate::ast_arena::Expr::Triple(ctx.alloc((a, b, c))) }
+  | LPAR e=expr RPAR       { e }
+                           !!rust{ e }

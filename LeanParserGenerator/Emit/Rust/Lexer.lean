@@ -233,6 +233,7 @@ def renderTok (s : Surface) (augEof : Nat) : Except String (String × String) :=
     "}",
     "",
     s!"{impl_} Terminal for Tok{lt} \{",
+    "    #[inline(always)]",
     "    fn term(&self) -> u16 {",
     "        match self {",
     "\n".intercalate arms.toList,

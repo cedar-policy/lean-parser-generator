@@ -191,6 +191,15 @@ structure Options where
       `%option gen_rust rust/src/generated.rs`; the default invocation then also writes
       it (docs/RUST_PARSER.md). -/
   genRust : Option String := none
+  /-- The Rust type of a user context passed to `parse_values` as `ctx: &'a <type>` and
+      visible in the `!!rust{…}` actions (for example an arena the actions allocate the
+      AST from). Set by `%option rust_ctx crate::ast::Arena` (docs/RUST_PARSER.md). -/
+  rustCtx : Option String := none
+  /-- A Rust module path providing the list type of the macro rules (`list`,
+      `separated_list`, …) in place of `VecDeque`: `<path>::List<'a, T>` with
+      `<path>::nil(ctx)`, `<path>::one(ctx, x)` and `<path>::cons(ctx, x, xs)`. Needs
+      `rust_ctx`. Set by `%option rust_list crate::ast::lists`. -/
+  rustList : Option String := none
   /-- When true, the executable parser writes its `actionData`/`gotoData` arrays in
       compressed source form: only the non-default cells (`.error` for actions,
       `none` for goto) are spelled out as `(index, value)` pairs, and a `buildDense`
@@ -279,7 +288,15 @@ def optionSpecs : List OptionSpec := [
   { name := "gen_rust", value := .path,
     valueDescription := "a file path",
     example_ := "gen_rust rust/src/generated.rs",
-    set := fun o v => { o with genRust := some v } }
+    set := fun o v => { o with genRust := some v } },
+  { name := "rust_ctx", value := .path,
+    valueDescription := "a Rust type",
+    example_ := "rust_ctx crate::ast::Arena",
+    set := fun o v => { o with rustCtx := some v } },
+  { name := "rust_list", value := .path,
+    valueDescription := "a Rust module path",
+    example_ := "rust_list crate::ast::lists",
+    set := fun o v => { o with rustList := some v } }
 ]
 
 /-- The `%option` names the frontend accepts. -/
@@ -468,7 +485,7 @@ def scanModulePath : ScanM (Except String (String × Span)) := do
   let (s, sp) ← takeWhile (fun ch => Cursor.isIdentCont ch || ch == '.')
   return .ok (s, sp)
 
-/-- Scan a file path: a run of non-whitespace characters. Used for `%option gen_rust`. -/
+/-- Scan a file path: a run of non-whitespace characters. Used for `%option gen_rust`, `rust_ctx` and `rust_list`. -/
 def scanPathWord : ScanM (Except String (String × Span)) := do
   skipWs
   let c ← get

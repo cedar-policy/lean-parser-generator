@@ -63,7 +63,8 @@ private def norm : Except String Surface → String
 def ligFiles : List String := [
   "test/calc/calc.lig", "test/imp/imp.lig", "test/cedar/cedar.lig",
   "test/cedarschema/CedarSchema.lig", "test/c99/c99.lig",
-  "test/rustactions/rustactions.lig", "LeanParserGenerator/Frontend/lig.lig" ]
+  "test/rustactions/rustactions.lig", "test/rustactions/rustarena.lig",
+  "LeanParserGenerator/Frontend/lig.lig" ]
 
 /-- A grammar around one rule, for the shapes of `!!rust{…}` that the fixtures do not cover. -/
 private def withRule (rule : String) : String :=
@@ -81,6 +82,8 @@ def edgeCases : List (String × String) := [
     withRule "s :: Nat !!rust{u64}\n  | { 0 } !!rust{ 0 }\n  | n=N { n } !!rust{ n }\n"),
   ("a Rust type with generics and a lifetime",
     withRule "s :: List Nat !!rust{std::collections::VecDeque<&'a u64>}\n  | { [] } !!rust{ Default::default() }\n"),
+  ("rust_ctx and rust_list options (Rust paths as values)",
+    "%header {\n}\n%option rust_ctx crate::ast::Arena\n%option rust_list crate::ast::lists\n%tokentype Tok\n%token A\n%token EOF\n%eof EOF\n%start s\n%%\ns :: Nat !!rust{u64}\n  | A { 0 } !!rust{ 0 }\n"),
   ("no Rust text at all",
     withRule "s :: Nat\n  | n=N { n }\n"),
   ("Rust action on one alternative only",

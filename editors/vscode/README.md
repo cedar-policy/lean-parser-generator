@@ -12,7 +12,7 @@ diagnostics inline (squiggles + Problems panel).
   separator;
 - `%option` and its known names — the flags `compress_tables` and `roundtrip_lexer`, and
   the value-carrying `module_prefix <path>`, `roundtrip_parser <function>`,
-  `roundtrip_format <function>` and `gen_rust <file>`; an unrecognized option name is
+  `roundtrip_format <function>`, `gen_rust <file>`, `rust_ctx <type>` and `rust_list <path>`; an unrecognized option name is
   colored as invalid (the server also reports it as an error);
 - terminals (UPPERCASE names) vs nonterminals (lowercase names) in rule bodies;
 - carried token types `<T>` and rule head types after `::`;

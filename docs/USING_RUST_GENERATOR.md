@@ -274,6 +274,44 @@ separate templates of the same loop and read the same tables, so they accept the
 lists and fail at the same token, state and lookahead; `test/rustactions/rust/src/main.rs`
 checks that on its samples.
 
+### Allocating from an arena
+
+Each `Box` and each `VecDeque` of an AST is a call to the allocator, one or two per token on
+a grammar with a deep AST, and freeing the tree is the same number again. An arena makes both
+cheap: nodes are bump-allocated and the whole tree is freed at once. Two options connect an
+arena to the actions:
+
+    %option rust_ctx  crate::ast::Arena
+    %option rust_list crate::ast::lists
+
+`rust_ctx T` adds a parameter to `parse_values`, `ctx: &'a T`, which every Rust action can
+use. `T` is yours; with `bumpalo`, `pub type Arena = bumpalo::Bump;` and `ctx.alloc(x)`
+(which returns `&'a mut X`) replace `Box::new(x)`. Nodes are then `&'a X` fields, and the
+AST needs no destructor.
+
+`rust_list P` changes the Rust text of the macro rules: a list is `P::List<'a, T>`, built
+with `P::nil(ctx)`, `P::one(ctx, x)` and `P::cons(ctx, x, xs)`, instead of a `VecDeque<T>`.
+It needs `rust_ctx`. A list of arena cells (`struct Cons { head, tail }`, a `List` that wraps
+`Option<&'a Cons>`, an `iter()`) is enough, since the expansion is right-recursive and
+`cons` is all it needs. `test/rustactions/rust/src/arena.rs` is a complete one and
+`test/rustactions/rustarena.lig` the grammar of `rustactions.lig` using it.
+
+The values borrow from `ctx`, so a `Stacks` ties its lifetime to one arena. To keep the
+buffers across parses, each with its own arena (or a reset one), call
+`stacks.recycle()`: it empties the stacks and returns them with a new lifetime
+(`Stacks<'b>`). It is the only `unsafe` in the generated parser; the stacks are empty when
+the lifetime changes. Generated only with `rust_ctx`.
+
+    let mut stacks: Stacks<'static> = Stacks::new();
+    let mut arena = Arena::new();
+    loop {
+        arena.reset();
+        let mut st = stacks.recycle();
+        let ast = parse_values(&toks, &mut st, &arena)?;
+        /* use ast; it ends before the next reset */
+        stacks = st.recycle();
+    }
+
 The values are not kept in one enum. A value is pushed on the stack of its Rust type when
 it is made and popped when its production is reduced, so the cost of an action is the cost of
 moving its arguments and its result. Large AST nodes make that cost visible: if a node
@@ -420,9 +458,9 @@ building the AST:
 
 | | Rust trace | Rust values | Lean (builds the AST) |
 |---|---|---|---|
-| lex + parse | 15 µs | 35 µs | 88 µs |
+| lex + parse | 14.2 µs | 33 µs | 88 µs |
 | lex only | 3.4 µs | 3.4 µs | 44 µs |
-| parse only | 11.5 µs | 30.6 µs | 43.7 µs |
+| parse only | 11.0 µs | 29.3 µs | 43.7 µs |
 
 "Rust values" is `parse_values` with the Rust actions of `test/cedar/cedar.lig`, which
 build the CST of `test/cedar/rust/src/cst.rs` (a faithful copy of the layered Cedar CST:
@@ -432,10 +470,13 @@ others. Lexing is about 520 MB/s. The corpus is small and repeated, so the branc
 learns it; a larger and more varied input will be slower.
 
 Where the time goes in `parse_values`: the LR loop itself costs about what the trace parser
-costs (11.5 µs here). Under `perf` over the whole benchmark, `malloc` and `free` take about
+costs (11 µs here). Under `perf` over the whole benchmark, `malloc` and `free` take about
 a fifth of the time, and `parse_values` itself (with the actions inlined: building the nodes
 and moving values between stacks) about a third. The representation is the user's, so it is
-also where the time can be saved: a flatter AST, an arena, indexes instead of boxes. The
+also where the time can be saved: a flatter AST (an operand list as one `VecDeque` instead of
+a chain of boxed cells), an arena (`%option rust_ctx`), indexes instead of boxes. On a
+grammar with a large deep AST, moving from the heap to an arena and a flat operand list
+roughly halved `parse_values`, bringing it within about 15% of the trace parser. The
 generator pastes whatever the action says.
 
 ## When something goes wrong

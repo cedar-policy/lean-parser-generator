@@ -131,6 +131,7 @@ pub enum Tok<'a> {
 }
 
 impl<'a> Terminal for Tok<'a> {
+    #[inline(always)]
     fn term(&self) -> u16 {
         match self {
             Tok::TRUE => 0,
@@ -2095,8 +2096,9 @@ pub fn parse<T: Terminal>(
     stack.push(Entry { state: 0, start: 0 });
     let mut ti = 0usize;
     let mut prev_end = 0u32;
+    // The state on top of `stack`, kept in a register instead of reloaded from it.
+    let mut state = 0usize;
     loop {
-        let state = stack[stack.len() - 1].state as usize;
         let dr = DEFAULT_REDUCE[state] as usize;
         let prod = if dr != NONE {
             dr
@@ -2112,6 +2114,7 @@ pub fn parse<T: Terminal>(
             }
             if a & 1 == 1 {
                 stack.push(Entry { state: (a >> 1) as u16, start: tstart });
+                state = a >> 1;
                 nodes.push(Node { kind: term, start: tstart, end: tend });
                 prev_end = tend;
                 ti += 1;
@@ -2137,6 +2140,7 @@ pub fn parse<T: Terminal>(
             };
         }
         stack.push(Entry { state: g as u16, start });
+        state = g;
     }
 }
 
@@ -2212,6 +2216,7 @@ impl<'a> Stacks<'a> {
         Self::default()
     }
 
+
     fn clear(&mut self) {
         self.entries.clear();
         self.v1.clear();
@@ -2285,8 +2290,9 @@ pub fn parse_values<'a>(
     stacks.entries.push(ValueEntry { state: 0, start: 0, end: 0 });
     let mut ti = 0usize;
     let mut prev_end = 0u32;
+    // The state on top of `stacks.entries`, kept in a register instead of reloaded from it.
+    let mut state = 0usize;
     loop {
-        let state = stacks.entries[stacks.entries.len() - 1].state as usize;
         let dr = DEFAULT_REDUCE[state] as usize;
         let prod = if dr != NONE {
             dr
@@ -2305,6 +2311,7 @@ pub fn parse_values<'a>(
                     push_payload(stacks, &tokens[ti].tok);
                 }
                 stacks.entries.push(ValueEntry { state: (a >> 1) as u16, start: tstart, end: tend });
+                state = a >> 1;
                 prev_end = tend;
                 ti += 1;
                 continue;
@@ -3447,5 +3454,6 @@ std::collections::VecDeque::new()
             return Err(ParseError { token: ti, state, term: u16::MAX });
         }
         __stack.push(ValueEntry { state: __g as u16, start: __start, end: prev_end });
+        state = __g;
     }
 }
