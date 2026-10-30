@@ -30,6 +30,7 @@ public import LeanParserGenerator.Construct.Annotate
 public import LeanParserGenerator.Emit.Codegen
 public import LeanParserGenerator.Emit.CodegenVerified
 public import LeanParserGenerator.Emit.CodegenLexer
+public import LeanParserGenerator.Emit.CodegenRust
 public import LeanParserGenerator.Emit.CodegenLexerRoundtrip
 public import LeanParserGenerator.Emit.CodegenParserRoundtrip
 public import LeanParserGenerator.Emit.ErrorList

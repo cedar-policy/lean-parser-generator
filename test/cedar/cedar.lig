@@ -4,6 +4,7 @@ open Cedar
 }
 %option compress_tables
 %option module_prefix cedar
+%option gen_rust rust/src/generated.rs
 %option roundtrip_lexer
 %option roundtrip_parser unparsePolicies
 %option roundtrip_format renderTok
@@ -60,6 +61,8 @@ def stripStringQuotes (value : String) : String :=
   let digit = ['0'-'9']
   let identStart = ['a'-'z' 'A'-'Z' '_']
   let identCont = ['a'-'z' 'A'-'Z' '0'-'9' '_']
+  rust keywordOrIdentifier => crate::hooks::keyword_or_identifier
+  rust stripStringQuotes => crate::hooks::strip_string_quotes
   | ws+                                             => skip
   | "//" [^ '\n' '\r']* ("\n" | "\r")*              => skip
   | "?principal"                                    => { Tok.PRINCIPAL_SLOT }

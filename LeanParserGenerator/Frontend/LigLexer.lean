@@ -219,6 +219,12 @@ partial def tokenize (input : String) : Except String (List LigTok) := do
       match captureBalanced cur '{' '}' with
       | .error e => throw e
       | .ok (interior, c1) => toks := toks.push (.ACTION interior.trimAscii.toString); cur := c1
+    else if (match toks.toList.reverse with
+        | .IDENT "gen_rust" :: .KW_OPTION :: _ => true
+        | _ => false) then
+      -- The value of `%option gen_rust` is a file path: a run of non-whitespace.
+      let (path, c1) := takeWhile cur (fun c => !(c == ' ' || c == '\t' || c == '\n' || c == '\r'))
+      toks := toks.push (.IDENT path); cur := c1
     else if Cursor.isIdentStart ch then
       match scanSymbol cur with
       | .error e => throw e
@@ -283,6 +289,8 @@ def assembleSurface (directives : Array Directive) (rules : Array Rule) :
       | "roundtrip_format", none => throw "`%option roundtrip_format` needs a token renderer function name (e.g. `%option roundtrip_format renderTok`)"
       | "module_prefix", some v => options := { options with modulePrefix := v }
       | "module_prefix", none => throw "`%option module_prefix` needs a module path (e.g. `%option module_prefix calc`)"
+      | "gen_rust", some v => options := { options with genRust := some v }
+      | "gen_rust", none => throw "`%option gen_rust` needs a file path (e.g. `%option gen_rust rust/src/generated.rs`)"
       | other, _ => throw (unknownOptionMessage other)
     | .lexer interior =>
       let innerCur : Cursor := { input := interior, pos := ⟨0⟩ }

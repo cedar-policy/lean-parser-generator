@@ -164,6 +164,9 @@ structure LexerSpec where
   modes : Array LexerMode
   /-- The verbatim token expression to emit at end of input, if any (`eof => …`). -/
   eof : Option String := none
+  /-- `rust <LeanName> => <rust::path>`: the Rust counterpart of a Lean function used in a
+      lexer action. Read only by the Rust backend (docs/RUST_PARSER.md). -/
+  rustFns : Array (String × String) := #[]
   span : Span := Span.dummy
   deriving Repr, Inhabited
 
@@ -171,6 +174,10 @@ structure LexerSpec where
     affect only *how* the modules are emitted (and which ones), never the grammar the
     proofs are about. Unknown option names are rejected by the parser. -/
 structure Options where
+  /-- The generated Rust file, relative to the `.lig`'s directory. Set by
+      `%option gen_rust rust/src/generated.rs`; the default invocation then also writes
+      it (docs/RUST_PARSER.md). -/
+  genRust : Option String := none
   /-- When true, the executable parser writes its `actionData`/`gotoData` arrays in
       compressed source form: only the non-default cells (`.error` for actions,
       `none` for goto) are spelled out as `(index, value)` pairs, and a `buildDense`
@@ -215,12 +222,12 @@ structure Options where
 
 /-- The `%option` names the frontend accepts. Shared by both `.lig` parsers and the
     diagnostics engine so validation and error text stay in sync. `module_prefix`,
-    `roundtrip_parser`, and `roundtrip_format` carry a value
+    `roundtrip_parser`, `roundtrip_format` and `gen_rust` carry a value
     (`%option module_prefix calc`, `%option roundtrip_parser unparsePolicies`,
     `%option roundtrip_format renderTok`); the rest are flags. -/
 def knownOptions : List String :=
   ["compress_tables", "roundtrip_lexer", "roundtrip_parser", "roundtrip_format",
-   "module_prefix"]
+   "module_prefix", "gen_rust"]
 
 /-- The `unknown %option` message, listing the accepted names. -/
 def unknownOptionMessage (name : String) : String :=
@@ -372,6 +379,15 @@ def scanModulePath : ScanM (Except String (String × Span)) := do
   if c.atEnd || !Cursor.isIdentStart c.peek then
     return .error s!"expected a module path at byte {c.pos.byteIdx}"
   let (s, sp) ← takeWhile (fun ch => Cursor.isIdentCont ch || ch == '.')
+  return .ok (s, sp)
+
+/-- Scan a file path: a run of non-whitespace characters. Used for `%option gen_rust`. -/
+def scanPathWord : ScanM (Except String (String × Span)) := do
+  skipWs
+  let c ← get
+  if c.atEnd then return .error s!"expected a file path at byte {c.pos.byteIdx}"
+  let (s, sp) ← takeWhile (fun ch => !(ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'))
+  if s.isEmpty then return .error s!"expected a file path at byte {c.pos.byteIdx}"
   return .ok (s, sp)
 
 /-- Peek the next non-whitespace character without consuming it. -/
@@ -882,11 +898,25 @@ def scanLexerModeBlock (ds : LexDefs) : ScanM (Except String LexerMode) := do
     of `| …` rules (single mode), followed by an optional `eof => { … }` clause. -/
 partial def scanLexerBlockBody (blockSpan : Span) : ScanM (Except String LexerSpec) := do
   let mut ds : LexDefs := #[]
-  -- 1. `let` definitions
+  let mut rustFns : Array (String × String) := #[]
+  -- 1. `let` definitions and `rust` declarations
   repeat
     skipWs
     let c ← get
-    if c.peek == 'l' && c.next.peek == 'e' && c.next.next.peek == 't'
+    if c.peek == 'r' && c.next.peek == 'u' && c.next.next.peek == 's'
+       && c.next.next.next.peek == 't' && c.next.next.next.next.peek == ' ' then
+      -- `rust <LeanName> => <rust::path>`
+      set c.next.next.next.next
+      let (line, _) ← restOfLine
+      match line.splitOn "=>" with
+      | [lhs, rhs] =>
+        let lean := lhs.trimAscii.toString
+        let path := rhs.trimAscii.toString
+        if lean.isEmpty || path.isEmpty || lean.any Char.isWhitespace then
+          return .error s!"expected `rust <LeanName> => <rust::path>`, got `rust {line.trimAscii.toString}`"
+        rustFns := rustFns.push (lean, path)
+      | _ => return .error s!"expected `rust <LeanName> => <rust::path>`, got `rust {line.trimAscii.toString}`"
+    else if c.peek == 'l' && c.next.peek == 'e' && c.next.next.peek == 't'
        && !Cursor.isIdentCont c.next.next.next.peek then
       -- `let name = <lexre>`
       let _ := c.next.next.next
@@ -951,7 +981,7 @@ partial def scanLexerBlockBody (blockSpan : Span) : ScanM (Except String LexerSp
       | .error e => return .error e
       | .ok (act, _) => eof := some act.trimAscii.toString
   if modes.isEmpty then return .error "empty `%lexer` block: no rules or modes"
-  return .ok { modes := modes, eof := eof, span := blockSpan }
+  return .ok { modes := modes, eof := eof, rustFns := rustFns, span := blockSpan }
 
 /-- Parse the whole `.lig` text into a `Surface`. -/
 partial def parseLig (input : String) (_fileName : String := "<lig>") :
@@ -1010,6 +1040,9 @@ partial def parseLig (input : String) (_fileName : String := "<lig>") :
       | "module_prefix" =>
         let (val, c4) ← run scanModulePath cur; cur := c4
         options := { options with modulePrefix := val.1 }
+      | "gen_rust" =>
+        let (val, c4) ← run scanPathWord cur; cur := c4
+        options := { options with genRust := some val.1 }
       | other => throw s!"{unknownOptionMessage other} at byte {nm.2.startPos.byteIdx}"
     | "lexer" =>
       let (blk, c3) ← run (captureBalanced '{' '}') cur; cur := c3
