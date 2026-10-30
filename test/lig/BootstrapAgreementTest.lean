@@ -63,10 +63,40 @@ private def norm : Except String Surface → String
 def ligFiles : List String := [
   "test/calc/calc.lig", "test/imp/imp.lig", "test/cedar/cedar.lig",
   "test/cedarschema/CedarSchema.lig", "test/c99/c99.lig",
-  "LeanParserGenerator/Frontend/lig.lig" ]
+  "test/rustactions/rustactions.lig", "LeanParserGenerator/Frontend/lig.lig" ]
+
+/-- A grammar around one rule, for the shapes of `!!rust{…}` that the fixtures do not cover. -/
+private def withRule (rule : String) : String :=
+  "%header {\n}\n%tokentype Tok\n%token A B\n%token <Nat> N\n%token EOF\n%eof EOF\n%start s\n%%\n" ++ rule
+
+/-- Inline cases: the hand-written frontend and the generated one must agree on them. -/
+def edgeCases : List (String × String) := [
+  ("rust type and action on the next lines",
+    withRule "s :: Nat !!rust{u64}\n  | n=N { n }\n    !!rust{ n }\n"),
+  ("comment between the Lean and the Rust action",
+    withRule "s :: Nat !!rust{u64}\n  | n=N { n }\n    -- the Rust counterpart\n    !!rust{ n }\n"),
+  ("nested braces and a string in the Rust text",
+    withRule "s :: Nat !!rust{u64}\n  | n=N { n } !!rust{ if n > 0 { match n { _ => { n } } } else { \"x\".len() as u64 } }\n"),
+  ("an empty alternative with a Rust action",
+    withRule "s :: Nat !!rust{u64}\n  | { 0 } !!rust{ 0 }\n  | n=N { n } !!rust{ n }\n"),
+  ("a Rust type with generics and a lifetime",
+    withRule "s :: List Nat !!rust{std::collections::VecDeque<&'a u64>}\n  | { [] } !!rust{ Default::default() }\n"),
+  ("no Rust text at all",
+    withRule "s :: Nat\n  | n=N { n }\n"),
+  ("Rust action on one alternative only",
+    withRule "s :: Nat\n  | n=N { n } !!rust{ n }\n  | A { 0 }\n") ]
 
 def main : IO UInt32 := do
   let mut failed := 0
+  for (name, src) in edgeCases do
+    let hand := norm (parseLig src)
+    let gen := norm (parseLigGen src)
+    -- Two errors would also compare equal, so the case must parse.
+    if hand == gen && !hand.startsWith "ERROR" then
+      IO.println s!"OK   {name}"
+    else
+      failed := failed + 1
+      IO.println s!"DIFF {name}\n  hand: {hand.take 300}\n  gen:  {gen.take 300}"
   for f in ligFiles do
     let src ← IO.FS.readFile f
     let hand := norm (parseLig src)

@@ -368,7 +368,7 @@ theorem goFast_eq (fuel : Nat) (stk : S) (input : List (Positioned T)) :
           decodeWith]
         cases ha : f.actionData.getD (f.topState (ops.toList stk) * f.actWidth + term tok.val)
             .error with
-        | shift s' => simp only [ih, hl.pushTok_eq, List.map_cons, decodeWith]
+        | shift s' => simp only [ih, hl.pushTok_eq]
         | reduce p =>
           show reduceFast (ops := ops) f fuse p stk _ = _
           rw [reduceFast_eq ops f fuse val hl hfuse p stk _

@@ -104,6 +104,9 @@ structure Alt where
   action : String
   /-- Span of the action body (between the braces) in the `.lig` source. -/
   actionSpan : Span := Span.dummy
+  /-- The Rust action, from `!!rust{ … }` after the Lean action, verbatim. The Rust
+      backend pastes it into the reduction of this alternative (docs/RUST_PARSER.md). -/
+  rustAction : Option String := none
   deriving Repr, Inhabited
 
 /-- One rule: an LHS nonterminal, its declared Lean type, and its alternatives. -/
@@ -112,6 +115,8 @@ structure Rule where
   ty : String
   alts : Array Alt
   span : Span := Span.dummy
+  /-- The Rust type of the rule's value, from `!!rust{ … }` after the Lean type. -/
+  rustTy : Option String := none
   deriving Repr, Inhabited
 
 /-! ### Lexer surface (the `%lexer { … }` block)
@@ -307,6 +312,17 @@ def peek (c : Cursor) : Char := if c.atEnd then default else c.pos.get c.input
 
 /-- Advance one character. -/
 def next (c : Cursor) : Cursor := { c with pos := c.pos.next c.input }
+
+/-- Does the input continue with `p` at the cursor? -/
+def startsWith (c : Cursor) (p : String) : Bool :=
+  (p.toList.foldl (fun (acc : Option Cursor) ch =>
+    match acc with
+    | some cur => if !cur.atEnd && cur.peek == ch then some cur.next else none
+    | none => none) (some c)).isSome
+
+/-- Skip `p`, which the input is known to continue with. -/
+def skip (c : Cursor) (p : String) : Cursor :=
+  p.toList.foldl (fun cur _ => cur.next) c
 
 /-- Is `ch` a `.lig` identifier character? (Letters, digits, `_`, and `'`; we also
     allow `.` so qualified names like `Ast.Foo` scan as one token in symbol
@@ -506,6 +522,21 @@ def scanSymbolWithArgs : ScanM (Except String (String × Span)) := do
     else
       return .ok (nm, sp)
 
+/-- The marker that introduces a Rust counterpart: `!!rust{ … }`. -/
+def rustMarker : String := "!!rust"
+
+/-- Split `text!!rust{rust}` into `text` and `rust`. The braces after the marker
+    are removed; `rust` is verbatim and trimmed. Text without a marker is returned
+    unchanged. -/
+def splitRust (text : String) : String × Option String :=
+  match text.splitOn (rustMarker ++ "{") with
+  | [only] => (only.trimAscii.toString, none)
+  | before :: rest =>
+    let body := (rustMarker ++ "{").intercalate rest
+    let body := if body.endsWith "}" then (body.dropEnd 1).toString else body
+    (before.trimAscii.toString, some body.trimAscii.toString)
+  | [] => (text, none)
+
 /-- Scan one production alternative starting just after a `|`. Reads elements
     until the `{`, then captures the balanced action body. -/
 def scanAlt : ScanM (Except String Alt) := do
@@ -536,7 +567,18 @@ def scanAlt : ScanM (Except String Alt) := do
           elems := elems.push { binder := none, sym := first, span := sp1 }
   match ← captureBalanced '{' '}' with
   | .error e => return .error e
-  | .ok (act, sp) => return .ok { elems := elems, action := act.trimAscii.toString, actionSpan := sp }
+  | .ok (act, sp) =>
+    -- An optional Rust action: `!!rust{ … }`.
+    skipWs
+    let c ← get
+    if c.startsWith rustMarker then
+      set (c.skip rustMarker)
+      match ← captureBalanced '{' '}' with
+      | .error e => return .error ("in `!!rust{…}`: " ++ e)
+      | .ok (rustBody, _) =>
+        return .ok { elems := elems, action := act.trimAscii.toString, actionSpan := sp,
+                     rustAction := some rustBody.trimAscii.toString }
+    return .ok { elems := elems, action := act.trimAscii.toString, actionSpan := sp }
 
 /-- Scan a rule: a head `NT :: Type`, then one or more `|`-alternatives. -/
 def scanRule : ScanM (Except String Rule) := do
@@ -549,7 +591,7 @@ def scanRule : ScanM (Except String Rule) := do
       return .error s!"expected `::` after rule head `{lhs}` at byte {c.pos.byteIdx}"
     set c.next.next
     let (tyStr, _) ← restOfLine
-    let ty := tyStr.trimAscii.toString
+    let (ty, rustTy) := splitRust tyStr
     let mut alts : Array Alt := #[]
     let mut go := true
     while go do
@@ -563,7 +605,7 @@ def scanRule : ScanM (Except String Rule) := do
       else
         go := false
     if alts.isEmpty then return .error s!"rule `{lhs}` has no alternatives"
-    return .ok { lhs := lhs, ty := ty, alts := alts, span := sp }
+    return .ok { lhs := lhs, ty := ty, alts := alts, span := sp, rustTy := rustTy }
 
 /-! ### Lexer block scanner (`%lexer { … }`)
 

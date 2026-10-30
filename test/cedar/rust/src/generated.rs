@@ -2139,3 +2139,1313 @@ pub fn parse<T: Terminal>(
         stack.push(Entry { state: g as u16, start });
     }
 }
+
+
+/// A byte range of the source: the extent of a symbol, as `x_span` in an action.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Span {
+    pub start: u32,
+    pub end: u32,
+}
+
+/// A parse stack entry. The value of its symbol is on the stack of its type in `Stacks`.
+#[derive(Clone, Copy, Debug)]
+pub struct ValueEntry {
+    pub state: u16,
+    pub start: u32,
+    pub end: u32,
+}
+
+/// The buffers of `parse_values`: the entry stack and one value stack per type.
+/// Reuse one across calls to avoid reallocating.
+#[derive(Default)]
+pub struct Stacks<'a> {
+    pub entries: Vec<ValueEntry>,
+    pub v1: Vec<&'a str>,
+    pub v2: Vec<u64>,
+    pub v3: Vec<crate::cst::Policies>,
+    pub v4: Vec<crate::cst::Annotation>,
+    pub v5: Vec<crate::cst::Policy>,
+    pub v6: Vec<std::collections::VecDeque<crate::cst::VariableDef>>,
+    pub v7: Vec<crate::cst::VariableDef>,
+    pub v8: Vec<Option<crate::cst::Name>>,
+    pub v9: Vec<Option<crate::cst::Add>>,
+    pub v10: Vec<Option<(crate::cst::RelOp, crate::cst::Expr)>>,
+    pub v11: Vec<crate::cst::Cond>,
+    pub v12: Vec<crate::cst::Expr>,
+    pub v13: Vec<crate::cst::Or>,
+    pub v14: Vec<std::collections::VecDeque<crate::cst::And>>,
+    pub v15: Vec<crate::cst::And>,
+    pub v16: Vec<std::collections::VecDeque<crate::cst::Relation>>,
+    pub v17: Vec<crate::cst::Relation>,
+    pub v18: Vec<std::collections::VecDeque<(crate::cst::RelOp, crate::cst::Add)>>,
+    pub v19: Vec<crate::cst::RelOp>,
+    pub v20: Vec<crate::cst::AddOp>,
+    pub v21: Vec<crate::cst::MultOp>,
+    pub v22: Vec<crate::cst::Add>,
+    pub v23: Vec<std::collections::VecDeque<(crate::cst::AddOp, crate::cst::Mult)>>,
+    pub v24: Vec<crate::cst::Mult>,
+    pub v25: Vec<std::collections::VecDeque<(crate::cst::MultOp, crate::cst::Unary)>>,
+    pub v26: Vec<crate::cst::Unary>,
+    pub v27: Vec<crate::cst::Member>,
+    pub v28: Vec<crate::cst::MemAccess>,
+    pub v29: Vec<crate::cst::Primary>,
+    pub v30: Vec<std::collections::VecDeque<crate::cst::Expr>>,
+    pub v31: Vec<std::collections::VecDeque<crate::cst::RecInit>>,
+    pub v32: Vec<crate::cst::RecInit>,
+    pub v33: Vec<Box<dyn FnOnce(std::collections::VecDeque<crate::cst::Ident>) -> crate::cst::Primary>>,
+    pub v34: Vec<crate::cst::Name>,
+    pub v35: Vec<(std::collections::VecDeque<crate::cst::Ident>, crate::cst::Ident)>,
+    pub v36: Vec<std::collections::VecDeque<crate::cst::RefInit>>,
+    pub v37: Vec<crate::cst::RefInit>,
+    pub v38: Vec<crate::cst::Literal>,
+    pub v39: Vec<crate::cst::Str>,
+    pub v40: Vec<crate::cst::Ident>,
+    pub v41: Vec<std::collections::VecDeque<crate::cst::Policy>>,
+    pub v42: Vec<std::collections::VecDeque<crate::cst::Annotation>>,
+    pub v43: Vec<std::collections::VecDeque<crate::cst::Cond>>,
+    pub v44: Vec<std::collections::VecDeque<crate::cst::MemAccess>>,
+}
+
+impl<'a> Stacks<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.v1.clear();
+        self.v2.clear();
+        self.v3.clear();
+        self.v4.clear();
+        self.v5.clear();
+        self.v6.clear();
+        self.v7.clear();
+        self.v8.clear();
+        self.v9.clear();
+        self.v10.clear();
+        self.v11.clear();
+        self.v12.clear();
+        self.v13.clear();
+        self.v14.clear();
+        self.v15.clear();
+        self.v16.clear();
+        self.v17.clear();
+        self.v18.clear();
+        self.v19.clear();
+        self.v20.clear();
+        self.v21.clear();
+        self.v22.clear();
+        self.v23.clear();
+        self.v24.clear();
+        self.v25.clear();
+        self.v26.clear();
+        self.v27.clear();
+        self.v28.clear();
+        self.v29.clear();
+        self.v30.clear();
+        self.v31.clear();
+        self.v32.clear();
+        self.v33.clear();
+        self.v34.clear();
+        self.v35.clear();
+        self.v36.clear();
+        self.v37.clear();
+        self.v38.clear();
+        self.v39.clear();
+        self.v40.clear();
+        self.v41.clear();
+        self.v42.clear();
+        self.v43.clear();
+        self.v44.clear();
+    }
+}
+
+/// Push the value a shifted token carries onto the stack of its type.
+#[inline(always)]
+fn push_payload<'a>(s: &mut Stacks<'a>, t: &Tok<'a>) {
+    match t {
+        Tok::OTHER_SLOT(v) => s.v1.push(*v),
+        Tok::IDENTIFIER(v) => s.v1.push(*v),
+        Tok::NUMBER(v) => s.v2.push(*v),
+        Tok::STRINGLIT(v) => s.v1.push(*v),
+        #[allow(unreachable_patterns)]
+        _ => {}
+    }
+}
+
+/// Parse `tokens` and return the value of the start symbol, computed by the Rust actions
+/// of the grammar. `stacks` is cleared first.
+#[allow(unused_variables, unused_mut, unused_parens, non_snake_case, clippy::all)]
+pub fn parse_values<'a>(
+    tokens: &[Spanned<Tok<'a>>],
+    stacks: &mut Stacks<'a>,
+) -> Result<crate::cst::Policies, ParseError> {
+    stacks.clear();
+    stacks.entries.push(ValueEntry { state: 0, start: 0, end: 0 });
+    let mut ti = 0usize;
+    let mut prev_end = 0u32;
+    loop {
+        let state = stacks.entries[stacks.entries.len() - 1].state as usize;
+        let dr = DEFAULT_REDUCE[state] as usize;
+        let prod = if dr != NONE {
+            dr
+        } else {
+            let (term, tstart, tend) = if ti < tokens.len() {
+                (tokens[ti].tok.term(), tokens[ti].start, tokens[ti].end)
+            } else {
+                (EOF, prev_end, prev_end)
+            };
+            let a = ACTION[state * NUM_TERMINALS + term as usize] as usize;
+            if a == 0 {
+                return Err(ParseError { token: ti, state, term });
+            }
+            if a & 1 == 1 {
+                if ti < tokens.len() {
+                    push_payload(stacks, &tokens[ti].tok);
+                }
+                stacks.entries.push(ValueEntry { state: (a >> 1) as u16, start: tstart, end: tend });
+                prev_end = tend;
+                ti += 1;
+                continue;
+            }
+            (a >> 1) - 1
+        };
+        let __n = RHS_LEN[prod] as usize;
+        if __n >= stacks.entries.len() {
+            return Err(ParseError { token: ti, state, term: u16::MAX });
+        }
+        let __base = stacks.entries.len() - __n;
+        let __start = if __n > 0 { stacks.entries[__base].start } else { prev_end };
+        let Stacks { entries: __stack, v1: __s1, v2: __s2, v3: __s3, v4: __s4, v5: __s5, v6: __s6, v7: __s7, v8: __s8, v9: __s9, v10: __s10, v11: __s11, v12: __s12, v13: __s13, v14: __s14, v15: __s15, v16: __s16, v17: __s17, v18: __s18, v19: __s19, v20: __s20, v21: __s21, v22: __s22, v23: __s23, v24: __s24, v25: __s25, v26: __s26, v27: __s27, v28: __s28, v29: __s29, v30: __s30, v31: __s31, v32: __s32, v33: __s33, v34: __s34, v35: __s35, v36: __s36, v37: __s37, v38: __s38, v39: __s39, v40: __s40, v41: __s41, v42: __s42, v43: __s43, v44: __s44 } = &mut *stacks;
+        match prod {
+            AUG_PROD => {
+                return Ok(__s3.pop().unwrap());
+            }
+        0 => {
+            // policies, alternative 1
+            let ps_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let ps = __s41.pop().unwrap();
+            __s3.push({
+crate::cst::Policies { policies: ps }
+            });
+        }
+        1 => {
+            // annotation, alternative 1
+            let key_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let key = __s40.pop().unwrap();
+            __s4.push({
+crate::cst::Annotation { key: key, value: Box::new(None) }
+            });
+        }
+        2 => {
+            // annotation, alternative 2
+            let value_span = Span { start: __stack[__base + 3].start, end: __stack[__base + 3].end };
+            let value = __s39.pop().unwrap();
+            let key_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let key = __s40.pop().unwrap();
+            __s4.push({
+crate::cst::Annotation { key: key, value: Box::new(Some(value)) }
+            });
+        }
+        3 => {
+            // policy, alternative 1
+            let conds_span = Span { start: __stack[__base + 5].start, end: __stack[__base + 5].end };
+            let conds = __s43.pop().unwrap();
+            let variables_span = Span { start: __stack[__base + 3].start, end: __stack[__base + 3].end };
+            let variables = __s6.pop().unwrap();
+            let effect_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let effect = __s40.pop().unwrap();
+            let annotations_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let annotations = __s42.pop().unwrap();
+            __s5.push({
+crate::cst::Policy::Policy(crate::cst::PolicyImpl { annotations: annotations, effect: effect, variables: variables, conds: conds })
+            });
+        }
+        4 => {
+            // variable_def_list, alternative 1
+            __s6.push({
+std::collections::VecDeque::new()
+            });
+        }
+        5 => {
+            // variable_def_list, alternative 2
+            let rest_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let rest = __s6.pop().unwrap();
+            let v_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let v = __s7.pop().unwrap();
+            __s6.push({
+crate::cst::cons(v, rest)
+            });
+        }
+        6 => {
+            // variable_def_comma_tail, alternative 1
+            __s6.push({
+std::collections::VecDeque::new()
+            });
+        }
+        7 => {
+            // variable_def_comma_tail, alternative 2
+            __s6.push({
+std::collections::VecDeque::new()
+            });
+        }
+        8 => {
+            // variable_def_comma_tail, alternative 3
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s6.pop().unwrap();
+            let v_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let v = __s7.pop().unwrap();
+            __s6.push({
+crate::cst::cons(v, rest)
+            });
+        }
+        9 => {
+            // variable_def, alternative 1
+            let ineq_span = Span { start: __stack[__base + 3].start, end: __stack[__base + 3].end };
+            let ineq = __s10.pop().unwrap();
+            let entity_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let entity = __s9.pop().unwrap();
+            let unused_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let unused = __s8.pop().unwrap();
+            let varName_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let varName = __s40.pop().unwrap();
+            __s7.push({
+crate::cst::VariableDef { variableName: Box::new(varName), unusedTypeName: Box::new(unused), entityType: Box::new(entity), ineq: ineq }
+            });
+        }
+        10 => {
+            // opt_unused_type, alternative 1
+            __s8.push({
+None
+            });
+        }
+        11 => {
+            // opt_unused_type, alternative 2
+            let name_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let name = __s34.pop().unwrap();
+            __s8.push({
+Some(name)
+            });
+        }
+        12 => {
+            // opt_entity_type, alternative 1
+            __s9.push({
+None
+            });
+        }
+        13 => {
+            // opt_entity_type, alternative 2
+            let entity_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let entity = __s22.pop().unwrap();
+            __s9.push({
+Some(entity)
+            });
+        }
+        14 => {
+            // opt_ineq, alternative 1
+            __s10.push({
+None
+            });
+        }
+        15 => {
+            // opt_ineq, alternative 2
+            let expression_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let expression = __s12.pop().unwrap();
+            let op_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let op = __s19.pop().unwrap();
+            __s10.push({
+Some((op, expression))
+            });
+        }
+        16 => {
+            // cond, alternative 1
+            let expression_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let expression = __s12.pop().unwrap();
+            let kind_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let kind = __s40.pop().unwrap();
+            __s11.push({
+crate::cst::Cond { cond: kind, expr: expression }
+            });
+        }
+        17 => {
+            // expr, alternative 1
+            let value_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let value = __s13.pop().unwrap();
+            __s12.push({
+crate::cst::Expr::Expr(Box::new(crate::cst::ExprImpl::Mk(Box::new(crate::cst::ExprData::Or(Box::new(value))))))
+            });
+        }
+        18 => {
+            // expr, alternative 2
+            let elseExpr_span = Span { start: __stack[__base + 5].start, end: __stack[__base + 5].end };
+            let elseExpr = __s12.pop().unwrap();
+            let thenExpr_span = Span { start: __stack[__base + 3].start, end: __stack[__base + 3].end };
+            let thenExpr = __s12.pop().unwrap();
+            let condition_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let condition = __s12.pop().unwrap();
+            __s12.push({
+crate::cst::Expr::Expr(Box::new(crate::cst::ExprImpl::Mk(Box::new(crate::cst::ExprData::IfThenElse(Box::new(condition), Box::new(thenExpr), Box::new(elseExpr))))))
+            });
+        }
+        19 => {
+            // or_expr, alternative 1
+            let extended_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let extended = __s14.pop().unwrap();
+            let initial_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let initial = __s15.pop().unwrap();
+            __s13.push({
+crate::cst::Or::Mk(Box::new(initial), extended)
+            });
+        }
+        20 => {
+            // or_tail, alternative 1
+            __s14.push({
+std::collections::VecDeque::new()
+            });
+        }
+        21 => {
+            // or_tail, alternative 2
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s14.pop().unwrap();
+            let next_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let next = __s15.pop().unwrap();
+            __s14.push({
+crate::cst::cons(next, rest)
+            });
+        }
+        22 => {
+            // and_expr, alternative 1
+            let extended_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let extended = __s16.pop().unwrap();
+            let initial_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let initial = __s17.pop().unwrap();
+            __s15.push({
+crate::cst::And::Mk(Box::new(initial), extended)
+            });
+        }
+        23 => {
+            // and_tail, alternative 1
+            __s16.push({
+std::collections::VecDeque::new()
+            });
+        }
+        24 => {
+            // and_tail, alternative 2
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s16.pop().unwrap();
+            let next_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let next = __s17.pop().unwrap();
+            __s16.push({
+crate::cst::cons(next, rest)
+            });
+        }
+        25 => {
+            // relation, alternative 1
+            let field_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let field = __s22.pop().unwrap();
+            let target_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let target = __s22.pop().unwrap();
+            __s17.push({
+crate::cst::Relation::Has(Box::new(target), Box::new(field))
+            });
+        }
+        26 => {
+            // relation, alternative 2
+            let access_span = Span { start: __stack[__base + 3].start, end: __stack[__base + 3].end };
+            let access = __s44.pop().unwrap();
+            let target_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let target = __s22.pop().unwrap();
+            __s17.push({
+crate::cst::Relation::Has(Box::new(target), Box::new(crate::cst::add_from_ident(crate::cst::Ident::IfIdent, access)))
+            });
+        }
+        27 => {
+            // relation, alternative 3
+            let pattern_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let pattern = __s22.pop().unwrap();
+            let target_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let target = __s22.pop().unwrap();
+            __s17.push({
+crate::cst::Relation::Like(Box::new(target), Box::new(pattern))
+            });
+        }
+        28 => {
+            // relation, alternative 4
+            let inEntity_span = Span { start: __stack[__base + 3].start, end: __stack[__base + 3].end };
+            let inEntity = __s9.pop().unwrap();
+            let entityType_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let entityType = __s22.pop().unwrap();
+            let target_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let target = __s22.pop().unwrap();
+            __s17.push({
+crate::cst::Relation::IsIn(Box::new(target), Box::new(entityType), Box::new(inEntity))
+            });
+        }
+        29 => {
+            // relation, alternative 5
+            let extended_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let extended = __s18.pop().unwrap();
+            let initial_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let initial = __s22.pop().unwrap();
+            __s17.push({
+crate::cst::Relation::Common(Box::new(initial), extended)
+            });
+        }
+        30 => {
+            // relation_tail, alternative 1
+            __s18.push({
+std::collections::VecDeque::new()
+            });
+        }
+        31 => {
+            // relation_tail, alternative 2
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s18.pop().unwrap();
+            let next_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let next = __s22.pop().unwrap();
+            let op_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let op = __s19.pop().unwrap();
+            __s18.push({
+crate::cst::cons((op, next), rest)
+            });
+        }
+        32 => {
+            // opt_in_add, alternative 1
+            __s9.push({
+None
+            });
+        }
+        33 => {
+            // opt_in_add, alternative 2
+            let entity_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let entity = __s22.pop().unwrap();
+            __s9.push({
+Some(entity)
+            });
+        }
+        34 => {
+            // rel_op, alternative 1
+            __s19.push({
+crate::cst::RelOp::Less
+            });
+        }
+        35 => {
+            // rel_op, alternative 2
+            __s19.push({
+crate::cst::RelOp::LessEq
+            });
+        }
+        36 => {
+            // rel_op, alternative 3
+            __s19.push({
+crate::cst::RelOp::GreaterEq
+            });
+        }
+        37 => {
+            // rel_op, alternative 4
+            __s19.push({
+crate::cst::RelOp::Greater
+            });
+        }
+        38 => {
+            // rel_op, alternative 5
+            __s19.push({
+crate::cst::RelOp::NotEq
+            });
+        }
+        39 => {
+            // rel_op, alternative 6
+            __s19.push({
+crate::cst::RelOp::Eq
+            });
+        }
+        40 => {
+            // rel_op, alternative 7
+            __s19.push({
+crate::cst::RelOp::InOp
+            });
+        }
+        41 => {
+            // rel_op, alternative 8
+            __s19.push({
+crate::cst::RelOp::InvalidSingleEq
+            });
+        }
+        42 => {
+            // add_op, alternative 1
+            __s20.push({
+crate::cst::AddOp::Plus
+            });
+        }
+        43 => {
+            // add_op, alternative 2
+            __s20.push({
+crate::cst::AddOp::Minus
+            });
+        }
+        44 => {
+            // mult_op, alternative 1
+            __s21.push({
+crate::cst::MultOp::Times
+            });
+        }
+        45 => {
+            // mult_op, alternative 2
+            __s21.push({
+crate::cst::MultOp::Divide
+            });
+        }
+        46 => {
+            // mult_op, alternative 3
+            __s21.push({
+crate::cst::MultOp::Mod
+            });
+        }
+        47 => {
+            // add, alternative 1
+            let extended_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let extended = __s23.pop().unwrap();
+            let initial_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let initial = __s24.pop().unwrap();
+            __s22.push({
+crate::cst::Add::Mk(Box::new(initial), extended)
+            });
+        }
+        48 => {
+            // add_tail, alternative 1
+            __s23.push({
+std::collections::VecDeque::new()
+            });
+        }
+        49 => {
+            // add_tail, alternative 2
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s23.pop().unwrap();
+            let next_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let next = __s24.pop().unwrap();
+            let op_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let op = __s20.pop().unwrap();
+            __s23.push({
+crate::cst::cons((op, next), rest)
+            });
+        }
+        50 => {
+            // mult, alternative 1
+            let extended_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let extended = __s25.pop().unwrap();
+            let initial_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let initial = __s26.pop().unwrap();
+            __s24.push({
+crate::cst::Mult::Mk(Box::new(initial), extended)
+            });
+        }
+        51 => {
+            // mult_tail, alternative 1
+            __s25.push({
+std::collections::VecDeque::new()
+            });
+        }
+        52 => {
+            // mult_tail, alternative 2
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s25.pop().unwrap();
+            let next_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let next = __s26.pop().unwrap();
+            let op_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let op = __s21.pop().unwrap();
+            __s25.push({
+crate::cst::cons((op, next), rest)
+            });
+        }
+        53 => {
+            // unary, alternative 1
+            let item_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(None, Box::new(item))
+            });
+        }
+        54 => {
+            // unary, alternative 2
+            let item_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::Bang(1u64)), Box::new(item))
+            });
+        }
+        55 => {
+            // unary, alternative 3
+            let item_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::Bang(2u64)), Box::new(item))
+            });
+        }
+        56 => {
+            // unary, alternative 4
+            let item_span = Span { start: __stack[__base + 3].start, end: __stack[__base + 3].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::Bang(3u64)), Box::new(item))
+            });
+        }
+        57 => {
+            // unary, alternative 5
+            let item_span = Span { start: __stack[__base + 4].start, end: __stack[__base + 4].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::Bang(4u64)), Box::new(item))
+            });
+        }
+        58 => {
+            // unary, alternative 6
+            let item_span = Span { start: __stack[__base + 5].start, end: __stack[__base + 5].end };
+            let item = __s27.pop().unwrap();
+            let _bang_span = Span { start: __stack[__base + 4].start, end: __stack[__base + 4].end };
+            let _bang = ();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::OverBang), Box::new(item))
+            });
+        }
+        59 => {
+            // unary, alternative 7
+            let item_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::Dash(1u64)), Box::new(item))
+            });
+        }
+        60 => {
+            // unary, alternative 8
+            let item_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::Dash(2u64)), Box::new(item))
+            });
+        }
+        61 => {
+            // unary, alternative 9
+            let item_span = Span { start: __stack[__base + 3].start, end: __stack[__base + 3].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::Dash(3u64)), Box::new(item))
+            });
+        }
+        62 => {
+            // unary, alternative 10
+            let item_span = Span { start: __stack[__base + 4].start, end: __stack[__base + 4].end };
+            let item = __s27.pop().unwrap();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::Dash(4u64)), Box::new(item))
+            });
+        }
+        63 => {
+            // unary, alternative 11
+            let item_span = Span { start: __stack[__base + 5].start, end: __stack[__base + 5].end };
+            let item = __s27.pop().unwrap();
+            let _dash_span = Span { start: __stack[__base + 4].start, end: __stack[__base + 4].end };
+            let _dash = ();
+            __s26.push({
+crate::cst::Unary::Mk(Some(crate::cst::NegOp::OverDash), Box::new(item))
+            });
+        }
+        64 => {
+            // bang_more, alternative 1
+            let _: () = {
+()
+            };
+        }
+        65 => {
+            // bang_more, alternative 2
+            let _rest_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let _rest = ();
+            let _: () = {
+()
+            };
+        }
+        66 => {
+            // dash_more, alternative 1
+            let _: () = {
+()
+            };
+        }
+        67 => {
+            // dash_more, alternative 2
+            let _rest_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let _rest = ();
+            let _: () = {
+()
+            };
+        }
+        68 => {
+            // member, alternative 1
+            let access_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let access = __s44.pop().unwrap();
+            let item_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let item = __s29.pop().unwrap();
+            __s27.push({
+crate::cst::Member::Mk(Box::new(item), access)
+            });
+        }
+        69 => {
+            // mem_access, alternative 1
+            let field_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let field = __s40.pop().unwrap();
+            __s28.push({
+crate::cst::MemAccess::Field(field)
+            });
+        }
+        70 => {
+            // mem_access, alternative 2
+            let args_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let args = __s30.pop().unwrap();
+            __s28.push({
+crate::cst::MemAccess::Call(args)
+            });
+        }
+        71 => {
+            // mem_access, alternative 3
+            let index_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let index = __s12.pop().unwrap();
+            __s28.push({
+crate::cst::MemAccess::Index(index)
+            });
+        }
+        72 => {
+            // primary, alternative 1
+            let literal_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let literal = __s38.pop().unwrap();
+            __s29.push({
+crate::cst::Primary::Literal(literal)
+            });
+        }
+        73 => {
+            // primary, alternative 2
+            // identity: the value stays where it is
+        }
+        74 => {
+            // primary, alternative 3
+            __s29.push({
+crate::cst::Primary::Slot(crate::cst::Slot::Principal)
+            });
+        }
+        75 => {
+            // primary, alternative 4
+            __s29.push({
+crate::cst::Primary::Slot(crate::cst::Slot::Resource)
+            });
+        }
+        76 => {
+            // primary, alternative 5
+            let slot_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let slot = __s1.pop().unwrap();
+            __s29.push({
+crate::cst::Primary::Slot(crate::cst::Slot::Other(slot.to_string()))
+            });
+        }
+        77 => {
+            // primary, alternative 6
+            let expression_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let expression = __s12.pop().unwrap();
+            __s29.push({
+crate::cst::Primary::Expr(Box::new(expression))
+            });
+        }
+        78 => {
+            // primary, alternative 7
+            let elements_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let elements = __s30.pop().unwrap();
+            __s29.push({
+crate::cst::Primary::ExprList(elements)
+            });
+        }
+        79 => {
+            // primary, alternative 8
+            let fields_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let fields = __s31.pop().unwrap();
+            __s29.push({
+crate::cst::Primary::Record(fields)
+            });
+        }
+        80 => {
+            // expr_list, alternative 1
+            __s30.push({
+std::collections::VecDeque::new()
+            });
+        }
+        81 => {
+            // expr_list, alternative 2
+            let rest_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let rest = __s30.pop().unwrap();
+            let expression_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let expression = __s12.pop().unwrap();
+            __s30.push({
+crate::cst::cons(expression, rest)
+            });
+        }
+        82 => {
+            // expr_comma_tail, alternative 1
+            __s30.push({
+std::collections::VecDeque::new()
+            });
+        }
+        83 => {
+            // expr_comma_tail, alternative 2
+            __s30.push({
+std::collections::VecDeque::new()
+            });
+        }
+        84 => {
+            // expr_comma_tail, alternative 3
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s30.pop().unwrap();
+            let expression_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let expression = __s12.pop().unwrap();
+            __s30.push({
+crate::cst::cons(expression, rest)
+            });
+        }
+        85 => {
+            // rec_init_list, alternative 1
+            __s31.push({
+std::collections::VecDeque::new()
+            });
+        }
+        86 => {
+            // rec_init_list, alternative 2
+            let rest_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let rest = __s31.pop().unwrap();
+            let init_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let init = __s32.pop().unwrap();
+            __s31.push({
+crate::cst::cons(init, rest)
+            });
+        }
+        87 => {
+            // rec_init_comma_tail, alternative 1
+            __s31.push({
+std::collections::VecDeque::new()
+            });
+        }
+        88 => {
+            // rec_init_comma_tail, alternative 2
+            __s31.push({
+std::collections::VecDeque::new()
+            });
+        }
+        89 => {
+            // rec_init_comma_tail, alternative 3
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s31.pop().unwrap();
+            let init_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let init = __s32.pop().unwrap();
+            __s31.push({
+crate::cst::cons(init, rest)
+            });
+        }
+        90 => {
+            // rec_init, alternative 1
+            let value_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let value = __s12.pop().unwrap();
+            __s32.push({
+crate::cst::RecInit::Mk(crate::cst::expr_from_ident(crate::cst::Ident::IfIdent), value)
+            });
+        }
+        91 => {
+            // rec_init, alternative 2
+            let value_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let value = __s12.pop().unwrap();
+            let key_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let key = __s12.pop().unwrap();
+            __s32.push({
+crate::cst::RecInit::Mk(key, value)
+            });
+        }
+        92 => {
+            // primary_name_or_ref, alternative 1
+            let first_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let first = __s40.pop().unwrap();
+            __s29.push({
+crate::cst::Primary::Name(crate::cst::Name { path: std::collections::VecDeque::new(), name: first })
+            });
+        }
+        93 => {
+            // primary_name_or_ref, alternative 2
+            let tail_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let tail = __s33.pop().unwrap();
+            let first_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let first = __s40.pop().unwrap();
+            __s29.push({
+tail(std::collections::VecDeque::from([first]))
+            });
+        }
+        94 => {
+            // primary_name_or_ref, alternative 3
+            let last_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let last = __s40.pop().unwrap();
+            let first_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let first = __s40.pop().unwrap();
+            __s29.push({
+crate::cst::Primary::Name(crate::cst::Name { path: std::collections::VecDeque::from([first]), name: last })
+            });
+        }
+        95 => {
+            // primary_name_or_ref, alternative 4
+            let tail_span = Span { start: __stack[__base + 4].start, end: __stack[__base + 4].end };
+            let tail = __s33.pop().unwrap();
+            let next_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let next = __s40.pop().unwrap();
+            let first_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let first = __s40.pop().unwrap();
+            __s29.push({
+tail(std::collections::VecDeque::from([first, next]))
+            });
+        }
+        96 => {
+            // path_tail, alternative 1
+            let last_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let last = __s40.pop().unwrap();
+            __s33.push({
+Box::new(move |path| crate::cst::Primary::Name(crate::cst::Name { path, name: last }))
+            });
+        }
+        97 => {
+            // path_tail, alternative 2
+            let eid_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let eid = __s39.pop().unwrap();
+            __s33.push({
+Box::new(move |components| crate::cst::Primary::Ref(Box::new(crate::cst::Ref::Uid(Box::new(crate::cst::name_from_components(components)), eid))))
+            });
+        }
+        98 => {
+            // path_tail, alternative 3
+            let fields_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let fields = __s36.pop().unwrap();
+            __s33.push({
+Box::new(move |components| crate::cst::Primary::Ref(Box::new(crate::cst::Ref::Ref(crate::cst::name_from_components(components), fields))))
+            });
+        }
+        99 => {
+            // path_tail, alternative 4
+            let tail_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let tail = __s33.pop().unwrap();
+            let next_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let next = __s40.pop().unwrap();
+            __s33.push({
+Box::new(move |mut path| { path.push_back(next); tail(path) })
+            });
+        }
+        100 => {
+            // name, alternative 1
+            let name_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let name = __s40.pop().unwrap();
+            __s34.push({
+crate::cst::Name { path: std::collections::VecDeque::new(), name: name }
+            });
+        }
+        101 => {
+            // name, alternative 2
+            let tail_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let tail = __s35.pop().unwrap();
+            let first_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let first = __s40.pop().unwrap();
+            __s34.push({
+crate::cst::Name { path: crate::cst::cons(first, tail.clone().0), name: tail.1 }
+            });
+        }
+        102 => {
+            // name_tail, alternative 1
+            let last_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let last = __s40.pop().unwrap();
+            __s35.push({
+(std::collections::VecDeque::new(), last)
+            });
+        }
+        103 => {
+            // name_tail, alternative 2
+            let tail_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let tail = __s35.pop().unwrap();
+            let next_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let next = __s40.pop().unwrap();
+            __s35.push({
+(crate::cst::cons(next, tail.clone().0), tail.1)
+            });
+        }
+        104 => {
+            // ref_init_list, alternative 1
+            __s36.push({
+std::collections::VecDeque::new()
+            });
+        }
+        105 => {
+            // ref_init_list, alternative 2
+            let rest_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let rest = __s36.pop().unwrap();
+            let init_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let init = __s37.pop().unwrap();
+            __s36.push({
+crate::cst::cons(init, rest)
+            });
+        }
+        106 => {
+            // ref_init_comma_tail, alternative 1
+            __s36.push({
+std::collections::VecDeque::new()
+            });
+        }
+        107 => {
+            // ref_init_comma_tail, alternative 2
+            __s36.push({
+std::collections::VecDeque::new()
+            });
+        }
+        108 => {
+            // ref_init_comma_tail, alternative 3
+            let rest_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let rest = __s36.pop().unwrap();
+            let init_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let init = __s37.pop().unwrap();
+            __s36.push({
+crate::cst::cons(init, rest)
+            });
+        }
+        109 => {
+            // ref_init, alternative 1
+            let value_span = Span { start: __stack[__base + 2].start, end: __stack[__base + 2].end };
+            let value = __s38.pop().unwrap();
+            let field_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let field = __s40.pop().unwrap();
+            __s37.push({
+crate::cst::RefInit { field: field, literal: Box::new(value) }
+            });
+        }
+        110 => {
+            // literal, alternative 1
+            __s38.push({
+crate::cst::Literal::TrueLit
+            });
+        }
+        111 => {
+            // literal, alternative 2
+            __s38.push({
+crate::cst::Literal::FalseLit
+            });
+        }
+        112 => {
+            // literal, alternative 3
+            let number_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let number = __s2.pop().unwrap();
+            __s38.push({
+crate::cst::Literal::Num(number)
+            });
+        }
+        113 => {
+            // literal, alternative 4
+            let value_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let value = __s39.pop().unwrap();
+            __s38.push({
+crate::cst::Literal::Str(value)
+            });
+        }
+        114 => {
+            // str_lit, alternative 1
+            let value_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let value = __s1.pop().unwrap();
+            __s39.push({
+crate::cst::Str::String(value.to_string())
+            });
+        }
+        115 => {
+            // common_ident, alternative 1
+            __s40.push({
+crate::cst::Ident::Principal
+            });
+        }
+        116 => {
+            // common_ident, alternative 2
+            __s40.push({
+crate::cst::Ident::Action
+            });
+        }
+        117 => {
+            // common_ident, alternative 3
+            __s40.push({
+crate::cst::Ident::Resource
+            });
+        }
+        118 => {
+            // common_ident, alternative 4
+            __s40.push({
+crate::cst::Ident::Context
+            });
+        }
+        119 => {
+            // common_ident, alternative 5
+            __s40.push({
+crate::cst::Ident::Permit
+            });
+        }
+        120 => {
+            // common_ident, alternative 6
+            __s40.push({
+crate::cst::Ident::Forbid
+            });
+        }
+        121 => {
+            // common_ident, alternative 7
+            __s40.push({
+crate::cst::Ident::When
+            });
+        }
+        122 => {
+            // common_ident, alternative 8
+            __s40.push({
+crate::cst::Ident::Unless
+            });
+        }
+        123 => {
+            // common_ident, alternative 9
+            __s40.push({
+crate::cst::Ident::InIdent
+            });
+        }
+        124 => {
+            // common_ident, alternative 10
+            __s40.push({
+crate::cst::Ident::Has
+            });
+        }
+        125 => {
+            // common_ident, alternative 11
+            __s40.push({
+crate::cst::Ident::Like
+            });
+        }
+        126 => {
+            // common_ident, alternative 12
+            __s40.push({
+crate::cst::Ident::Is
+            });
+        }
+        127 => {
+            // common_ident, alternative 13
+            __s40.push({
+crate::cst::Ident::ThenIdent
+            });
+        }
+        128 => {
+            // common_ident, alternative 14
+            __s40.push({
+crate::cst::Ident::ElseIdent
+            });
+        }
+        129 => {
+            // common_ident, alternative 15
+            let value_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let value = __s1.pop().unwrap();
+            __s40.push({
+crate::cst::Ident::Ident(value.to_string())
+            });
+        }
+        130 => {
+            // special_ident, alternative 1
+            __s40.push({
+crate::cst::Ident::IfIdent
+            });
+        }
+        131 => {
+            // special_ident, alternative 2
+            __s40.push({
+crate::cst::Ident::TrueIdent
+            });
+        }
+        132 => {
+            // special_ident, alternative 3
+            __s40.push({
+crate::cst::Ident::FalseIdent
+            });
+        }
+        133 => {
+            // any_ident, alternative 1
+            // identity: the value stays where it is
+        }
+        134 => {
+            // any_ident, alternative 2
+            // identity: the value stays where it is
+        }
+        135 => {
+            // list_policy, alternative 1
+            __s41.push({
+std::collections::VecDeque::new()
+            });
+        }
+        136 => {
+            // list_policy, alternative 2
+            let xs_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let xs = __s41.pop().unwrap();
+            let x_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let x = __s5.pop().unwrap();
+            __s41.push({
+{ let mut xs = xs; xs.push_front(x); xs }
+            });
+        }
+        137 => {
+            // list_annotation, alternative 1
+            __s42.push({
+std::collections::VecDeque::new()
+            });
+        }
+        138 => {
+            // list_annotation, alternative 2
+            let xs_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let xs = __s42.pop().unwrap();
+            let x_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let x = __s4.pop().unwrap();
+            __s42.push({
+{ let mut xs = xs; xs.push_front(x); xs }
+            });
+        }
+        139 => {
+            // list_cond, alternative 1
+            __s43.push({
+std::collections::VecDeque::new()
+            });
+        }
+        140 => {
+            // list_cond, alternative 2
+            let xs_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let xs = __s43.pop().unwrap();
+            let x_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let x = __s11.pop().unwrap();
+            __s43.push({
+{ let mut xs = xs; xs.push_front(x); xs }
+            });
+        }
+        141 => {
+            // list_mem_access, alternative 1
+            __s44.push({
+std::collections::VecDeque::new()
+            });
+        }
+        142 => {
+            // list_mem_access, alternative 2
+            let xs_span = Span { start: __stack[__base + 1].start, end: __stack[__base + 1].end };
+            let xs = __s44.pop().unwrap();
+            let x_span = Span { start: __stack[__base + 0].start, end: __stack[__base + 0].end };
+            let x = __s28.pop().unwrap();
+            __s44.push({
+{ let mut xs = xs; xs.push_front(x); xs }
+            });
+        }
+            _ => unreachable!(),
+        }
+        __stack.truncate(__base);
+        let __top = __stack[__base - 1].state as usize;
+        let __g = GOTO[__top * NUM_NONTERMINALS + LHS[prod] as usize] as usize;
+        if __g == NONE {
+            return Err(ParseError { token: ti, state, term: u16::MAX });
+        }
+        __stack.push(ValueEntry { state: __g as u16, start: __start, end: prev_end });
+    }
+}

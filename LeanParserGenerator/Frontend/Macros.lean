@@ -137,6 +137,48 @@ def synth (self : String) (app : App) (elemTy : String)
       mk #[(some "x", x), (none, sep), (some "xs", self)] "x :: xs"])
   | n, _ => .error s!"unsupported macro application `{n}` in `{self}`"
 
+/-- The Rust type of a token's payload, for the Rust defaults of macro rules. -/
+def tokenRustTy (ty : String) : Option String :=
+  match ty.trimAscii.toString with
+  | "String" => some "&'a str"
+  | "Nat" => some "u64"
+  | "Int" => some "i64"
+  | "Bool" => some "bool"
+  | "Char" => some "char"
+  | "Unit" => some "()"
+  | _ => none
+
+/-- The Rust type of a macro element: the `!!rust{type}` of the rule it names, a token's
+    payload type, or the type of a nested macro application. -/
+partial def rustOfElem (s : Surface) (arg : String) : Option String :=
+  match parseApp? arg with
+  | some inner =>
+    if isMacroName inner.name then
+      (rustOfElem s inner.args.back!).map fun r =>
+        if inner.name == "option" then s!"Option<{r}>" else s!"std::collections::VecDeque<{r}>"
+    else none
+  | none =>
+    match s.rules.find? (·.lhs == arg) with
+    | some r => r.rustTy.map (·.trimAscii.toString)
+    | none => (s.tokens.find? (·.name == arg)).bind fun t =>
+        tokenRustTy (if t.hasVal then t.ty else "Unit")
+
+/-- The Rust type and actions of a macro rule, matching the alternatives of `synth`. Lists
+    are `VecDeque`s: the expansion is right-recursive (`x :: xs`), and `push_front` is O(1). -/
+def synthRust (app : App) (elemRust : String) : Option (String × Array String) :=
+  let dq := "std::collections::VecDeque"
+  let x := "x"
+  let cons := s!"\{ let mut xs = xs; xs.push_front({x}); xs }"
+  match app.name, app.args.toList with
+  | "list", [_] => some (s!"{dq}<{elemRust}>", #[s!"{dq}::new()", cons])
+  | "nonempty_list", [_] => some (s!"{dq}<{elemRust}>", #[s!"{dq}::from([{x}])", cons])
+  | "option", [_] => some (s!"Option<{elemRust}>", #["None", s!"Some({x})"])
+  | "separated_nonempty_list", [_, _] =>
+    some (s!"{dq}<{elemRust}>", #[s!"{dq}::from([{x}])", cons])
+  | "separated_list", [_, _] =>
+    some (s!"{dq}<{elemRust}>", #[s!"{dq}::new()", s!"{dq}::from([{x}])", cons])
+  | _, _ => none
+
 /-- Expand all parameterized-rule applications in a surface grammar into concrete
     nonterminals. Idempotent on macro-free grammars. -/
 def expandMacros (s : Surface) : Except String Surface := do
@@ -169,7 +211,17 @@ def expandMacros (s : Surface) : Except String Surface := do
         | some t => .ok t
         | none => .error s!"macro element `{elemArg}` in `{orig}` is not a declared nonterminal"
     let (ruleTy, alts) ← synth self app elemTy
-    newRules := newRules.push { lhs := self, ty := ruleTy, alts := alts }
+    -- With Rust actions in the grammar, a macro rule gets a Rust counterpart too.
+    let rust? := if s.rules.any (·.rustTy.isSome) then
+        (rustOfElem s elemArg).bind (synthRust app)
+      else none
+    let rule : Rule :=
+      match rust? with
+      | some (rty, acts) =>
+        let withRust := (alts.zip acts).map (fun (a, act) => { a with rustAction := some act })
+        { lhs := self, ty := ruleTy, alts := withRust, rustTy := some rty }
+      | none => { lhs := self, ty := ruleTy, alts := alts }
+    newRules := newRules.push rule
   -- 3. Rewrite invocations to the mangled names throughout all rule elements.
   let rewriteElem := fun (e : Elem) =>
     if (parseApp? e.sym).isSome && isMacroName ((parseApp? e.sym).get!).name

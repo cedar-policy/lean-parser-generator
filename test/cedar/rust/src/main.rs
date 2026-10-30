@@ -112,4 +112,31 @@ fn main() {
         }
     }
     report("parse only", t.elapsed().as_nanos() as f64, acc);
+
+    // The Rust actions of `cedar.lig`: lex + parse_values, building and dropping the CST.
+    let mut stacks = generated::Stacks::new();
+    let t = Instant::now();
+    let mut acc = 0usize;
+    for _ in 0..iters {
+        for s in &sources {
+            toks.clear();
+            if generated::tokenize(black_box(s), &mut toks).is_ok() {
+                if let Ok(policies) = generated::parse_values(&toks, &mut stacks) {
+                    acc += policies.policies.len();
+                }
+            }
+        }
+    }
+    report("lex+parse_values (CST built and dropped)", t.elapsed().as_nanos() as f64, acc);
+
+    let t = Instant::now();
+    let mut acc = 0usize;
+    for _ in 0..iters {
+        for ts in &lexed {
+            if let Ok(policies) = black_box(generated::parse_values(black_box(ts), &mut stacks)) {
+                acc += policies.policies.len();
+            }
+        }
+    }
+    report("parse_values only", t.elapsed().as_nanos() as f64, acc);
 }

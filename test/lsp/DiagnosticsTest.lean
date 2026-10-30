@@ -210,4 +210,53 @@ expr :: Nat
 -- without any error diagnostics.
 #guard countErrors (collectDiagnostics knownOptionsGrammar) == 0
 
+/-! ### `gen_rust` and `!!rust{…}` -/
+
+def rustGrammar : String :=
+"%tokentype Tok
+%token PLUS
+%token <Nat> NUM
+%token EOF
+%eof EOF
+%option gen_rust rust/src/generated.rs
+%option roundtrip_parser unparse
+%option roundtrip_format renderTok
+%lexer {
+  | ['0'-'9']+ as s => { Tok.NUM (String.toNat! s) }
+  | \"+\" => { Tok.PLUS }
+  eof => { Tok.EOF }
+}
+%start expr
+%%
+expr :: Nat !!rust{u64}
+  | a=expr PLUS n=NUM { a + n }
+                      !!rust{ a + n }
+  -- the Rust counterpart may follow a comment and contain braces
+  | n=NUM { n }
+    !!rust{ if n > 0 { n } else { 0 } }
+  | { 0 } !!rust{ 0 }
+list_of_nums :: List Nat !!rust{std::collections::VecDeque<u64>}
+  | xs=list(NUM) { xs } !!rust{ xs }
+"
+
+-- The `gen_rust` option (with its path) and Rust actions, Rust types and macros in a
+-- grammar with Rust text raise no diagnostics of any severity apart from the unused
+-- nonterminal below.
+#guard countErrors (collectDiagnostics rustGrammar) == 0
+#guard !(collectDiagnostics rustGrammar).any (fun d => d.severity == .warning)
+#guard (collectDiagnostics rustGrammar).all fun d => strContains d.message "never used"
+
+-- An unclosed `!!rust{` is a located error from the frontend.
+def unclosedRustGrammar : String :=
+"%tokentype Tok
+%token EOF
+%eof EOF
+%start s
+%%
+s :: Nat
+  | { 0 } !!rust{ 0
+"
+
+#guard hasError (collectDiagnostics unclosedRustGrammar) "!!rust"
+
 #eval IO.println "All diagnostics engine tests passed."
