@@ -165,23 +165,32 @@ partial def rustOfElem (s : Surface) (arg : String) : Option String :=
 
 /-- The Rust type and actions of a macro rule, matching the alternatives of `synth`. Lists
     are `VecDeque`s: the expansion is right-recursive (`x :: xs`), and `push_front` is O(1). -/
-def synthRust (app : App) (elemRust : String) : Option (String × Array String) :=
-  let dq := "std::collections::VecDeque"
+def synthRust (listMod : Option String) (app : App) (elemRust : String) :
+    Option (String × Array String) :=
   let x := "x"
-  let cons := s!"\{ let mut xs = xs; xs.push_front({x}); xs }"
+  -- Without `%option rust_list`: `VecDeque`s. With it: the user's list type, built with
+  -- `<mod>::nil(ctx)`, `one(ctx, x)` and `cons(ctx, x, xs)`.
+  let (listTy, nil, one, cons) := match listMod with
+    | none =>
+      let dq := "std::collections::VecDeque"
+      (s!"{dq}<{elemRust}>", s!"{dq}::new()", s!"{dq}::from([{x}])",
+       s!"\{ let mut xs = xs; xs.push_front({x}); xs }")
+    | some m =>
+      (s!"{m}::List<'a, {elemRust}>", s!"{m}::nil(ctx)", s!"{m}::one(ctx, {x})",
+       s!"{m}::cons(ctx, {x}, xs)")
   match app.name, app.args.toList with
-  | "list", [_] => some (s!"{dq}<{elemRust}>", #[s!"{dq}::new()", cons])
-  | "nonempty_list", [_] => some (s!"{dq}<{elemRust}>", #[s!"{dq}::from([{x}])", cons])
+  | "list", [_] => some (listTy, #[nil, cons])
+  | "nonempty_list", [_] => some (listTy, #[one, cons])
   | "option", [_] => some (s!"Option<{elemRust}>", #["None", s!"Some({x})"])
-  | "separated_nonempty_list", [_, _] =>
-    some (s!"{dq}<{elemRust}>", #[s!"{dq}::from([{x}])", cons])
-  | "separated_list", [_, _] =>
-    some (s!"{dq}<{elemRust}>", #[s!"{dq}::new()", s!"{dq}::from([{x}])", cons])
+  | "separated_nonempty_list", [_, _] => some (listTy, #[one, cons])
+  | "separated_list", [_, _] => some (listTy, #[nil, one, cons])
   | _, _ => none
 
 /-- Expand all parameterized-rule applications in a surface grammar into concrete
     nonterminals. Idempotent on macro-free grammars. -/
 def expandMacros (s : Surface) : Except String Surface := do
+  if s.options.rustList.isSome && s.options.rustCtx.isNone then
+    throw "`%option rust_list` needs `%option rust_ctx` (the list functions take `ctx`)"
   -- 1. Collect every distinct macro application appearing in any rule element.
   let mut apps : Array (String × App) := #[]   -- (originalSym, parsed)
   for r in s.rules do
@@ -213,7 +222,7 @@ def expandMacros (s : Surface) : Except String Surface := do
     let (ruleTy, alts) ← synth self app elemTy
     -- With Rust actions in the grammar, a macro rule gets a Rust counterpart too.
     let rust? := if s.rules.any (·.rustTy.isSome) then
-        (rustOfElem s elemArg).bind (synthRust app)
+        (rustOfElem s elemArg).bind (synthRust s.options.rustList app)
       else none
     let rule : Rule :=
       match rust? with

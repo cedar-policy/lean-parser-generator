@@ -86,8 +86,8 @@
           }
         },
         {
-          "comment": "%option gen_rust <path> — the generated Rust file, relative to the .lig (a run of non-blank characters)",
-          "match": "(%option)\\s+(gen_rust)\\s+(\\S+)",
+          "comment": "%option gen_rust <path> (the generated Rust file, relative to the .lig), rust_ctx <type> and rust_list <module path>: a run of non-blank characters",
+          "match": "(%option)\\s+(gen_rust|rust_ctx|rust_list)\\s+(\\S+)",
           "captures": {
             "1": { "name": "keyword.control.directive.lig" },
             "2": { "name": "constant.language.option.lig" },

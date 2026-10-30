@@ -122,6 +122,9 @@ def genTargets : Array GenTarget := #[
   { lig := "test/rustactions/rustactions.lig"
     outputs := #["test/rustactions/RustactionsVerified.lean", "test/rustactions/RustactionsParser.lean",
       "test/rustactions/RustactionsLexer.lean", "test/rustactions/rust/src/generated.rs"] },
+  { lig := "test/rustactions/rustarena.lig"
+    outputs := #["test/rustactions/RustarenaVerified.lean", "test/rustactions/RustarenaParser.lean",
+      "test/rustactions/RustarenaLexer.lean", "test/rustactions/rust/src/generated_arena.rs"] },
   { lig := "test/spanuse/SpanUse.lig"
     outputs := #["test/spanuse/SpanUseVerified.lean", "test/spanuse/SpanUseParser.lean",
       "test/spanuse/SpanUseLexer.lean", "test/spanuse/SpanUseLexerRoundtrip.lean"] }
@@ -236,13 +239,14 @@ lean_lib «VerifiedHeavy» where
   ]
   needs := #[heavyParsers]
 
-/-- The `rustactions` fixture (Rust actions, `!!rust{…}`): its Lean AST and the generated Lean
+/-- The `rustactions` and `rustarena` fixtures (Rust actions, `!!rust{…}`, with and without an arena): their Lean AST and the generated Lean
     lexer and parser, so that the Lean side of the grammar is compiled. The Rust side is
     `test/rustactions/rust`, built in CI. -/
 @[default_target]
 lean_lib «RustActions» where
   srcDir := "test"
-  roots := #[`rustactions.RustActionsAst, `rustactions.RustactionsLexer, `rustactions.RustactionsParser]
+  roots := #[`rustactions.RustActionsAst, `rustactions.RustactionsLexer, `rustactions.RustactionsParser,
+    `rustactions.RustarenaLexer, `rustactions.RustarenaParser]
   needs := #[parsers]
 
 /-- Throughput benchmark exe -/

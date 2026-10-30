@@ -183,6 +183,15 @@ structure Options where
       `%option gen_rust rust/src/generated.rs`; the default invocation then also writes
       it (docs/RUST_PARSER.md). -/
   genRust : Option String := none
+  /-- The Rust type of a user context passed to `parse_values` as `ctx: &'a <type>` and
+      visible in the `!!rust{…}` actions (for example an arena the actions allocate the
+      AST from). Set by `%option rust_ctx crate::ast::Arena` (docs/RUST_PARSER.md). -/
+  rustCtx : Option String := none
+  /-- A Rust module path providing the list type of the macro rules (`list`,
+      `separated_list`, …) in place of `VecDeque`: `<path>::List<'a, T>` with
+      `<path>::nil(ctx)`, `<path>::one(ctx, x)` and `<path>::cons(ctx, x, xs)`. Needs
+      `rust_ctx`. Set by `%option rust_list crate::ast::lists`. -/
+  rustList : Option String := none
   /-- When true, the executable parser writes its `actionData`/`gotoData` arrays in
       compressed source form: only the non-default cells (`.error` for actions,
       `none` for goto) are spelled out as `(index, value)` pairs, and a `buildDense`
@@ -227,12 +236,12 @@ structure Options where
 
 /-- The `%option` names the frontend accepts. Shared by both `.lig` parsers and the
     diagnostics engine so validation and error text stay in sync. `module_prefix`,
-    `roundtrip_parser`, `roundtrip_format` and `gen_rust` carry a value
+    `roundtrip_parser`, `roundtrip_format`, `gen_rust`, `rust_ctx` and `rust_list` carry a value
     (`%option module_prefix calc`, `%option roundtrip_parser unparsePolicies`,
     `%option roundtrip_format renderTok`); the rest are flags. -/
 def knownOptions : List String :=
   ["compress_tables", "roundtrip_lexer", "roundtrip_parser", "roundtrip_format",
-   "module_prefix", "gen_rust"]
+   "module_prefix", "gen_rust", "rust_ctx", "rust_list"]
 
 /-- The `unknown %option` message, listing the accepted names. -/
 def unknownOptionMessage (name : String) : String :=
@@ -397,7 +406,7 @@ def scanModulePath : ScanM (Except String (String × Span)) := do
   let (s, sp) ← takeWhile (fun ch => Cursor.isIdentCont ch || ch == '.')
   return .ok (s, sp)
 
-/-- Scan a file path: a run of non-whitespace characters. Used for `%option gen_rust`. -/
+/-- Scan a file path: a run of non-whitespace characters. Used for `%option gen_rust`, `rust_ctx` and `rust_list`. -/
 def scanPathWord : ScanM (Except String (String × Span)) := do
   skipWs
   let c ← get
@@ -1085,6 +1094,12 @@ partial def parseLig (input : String) (_fileName : String := "<lig>") :
       | "gen_rust" =>
         let (val, c4) ← run scanPathWord cur; cur := c4
         options := { options with genRust := some val.1 }
+      | "rust_ctx" =>
+        let (val, c4) ← run scanPathWord cur; cur := c4
+        options := { options with rustCtx := some val.1 }
+      | "rust_list" =>
+        let (val, c4) ← run scanPathWord cur; cur := c4
+        options := { options with rustList := some val.1 }
       | other => throw s!"{unknownOptionMessage other} at byte {nm.2.startPos.byteIdx}"
     | "lexer" =>
       let (blk, c3) ← run (captureBalanced '{' '}') cur; cur := c3
