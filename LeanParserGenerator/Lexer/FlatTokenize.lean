@@ -240,8 +240,7 @@ def tokenizeFlatStrAux (cf : CompiledFlat Tok) (input : String) :
       else
         let mode := stack.headD cf.base.start
         let flat := cf.flats.getD mode default
-        match DFA.flatScanStr flat p with
-        | some (rule, len, endPos) =>
+        (DFA.flatScanStrR flat p).elim (fun rule len endPos =>
             if len = 0 then .error { pos := cpos, char := some (p.get hend) }
             else
               -- Skip the `String.extract` byte copy when the rule's action
@@ -257,8 +256,8 @@ def tokenizeFlatStrAux (cf : CompiledFlat Tok) (input : String) :
                 | .stay => stack
                 | .push m => m :: stack
                 | .pop => stack.tail
-              tokenizeFlatStrAux cf input fuel endPos (cpos + len) stack acc
-        | none => .error { pos := cpos, char := some (p.get hend) }
+              tokenizeFlatStrAux cf input fuel endPos (cpos + len) stack acc)
+          (.error { pos := cpos, char := some (p.get hend) })
 
 /-- The fast flat tokenizer entry point over `String.Pos`. -/
 def tokenizeFlatStr (cf : CompiledFlat Tok) (input : String) : Except LexError (List Tok) :=
@@ -290,6 +289,10 @@ theorem tokenizeFlatStrAux_eq_single (cf : CompiledFlat Tok) (m : Nat)
     · simp only [hend, dite_eq_left]
       cases cf.base.eofToken <;> rfl
     · simp only [hend, dite_eq_right, not_false_eq_true, List.headD_cons]
+      rw [DFA.ScanRes.elim_eq]
+      have hR : (DFA.flatScanStrR (cf.flats.getD m default) p).toOption
+          = DFA.flatScanStr (cf.flats.getD m default) p := rfl
+      rw [hR]
       rw [flatScanStr_eq_scanStr (cf.flats.getD m default) (cf.base.dfas.getD m default)
         hstep hacc hrange hstartm p]
       cases hsc : DFA.scanStr (cf.base.dfas.getD m default) p with
@@ -364,8 +367,7 @@ def tokenizeFlatStrPosAux (cf : CompiledFlat Tok) (input : String) :
       else
         let mode := stack.headD cf.base.start
         let flat := cf.flats.getD mode default
-        match DFA.flatScanStr flat p with
-        | some (rule, len, endPos) =>
+        (DFA.flatScanStrR flat p).elim (fun rule len endPos =>
             if len = 0 then .error { pos := cpos, char := some (p.get hend) }
             else
               let matched := bif cf.needsText mode rule then input.extract p endPos else ""
@@ -378,8 +380,8 @@ def tokenizeFlatStrPosAux (cf : CompiledFlat Tok) (input : String) :
                 | .stay => stack
                 | .push m => m :: stack
                 | .pop => stack.tail
-              tokenizeFlatStrPosAux cf input fuel endPos (cpos + len) stack acc
-        | none => .error { pos := cpos, char := some (p.get hend) }
+              tokenizeFlatStrPosAux cf input fuel endPos (cpos + len) stack acc)
+          (.error { pos := cpos, char := some (p.get hend) })
 
 /-- The positioned flat tokenizer entry point. Same scan as `tokenizeFlatStr`, but
     each token carries its source `Span`. -/
@@ -412,6 +414,10 @@ theorem tokenizeFlatStrPosAux_val (cf : CompiledFlat Tok) (input : String) :
         | some tok => simp [Except.map, List.map_reverse]
       · rfl
     · simp only [hend, dite_false]
+      simp only [DFA.ScanRes.elim_eq]
+      have hR : (DFA.flatScanStrR (cf.flats.getD (stack.headD cf.base.start) default) p).toOption
+          = DFA.flatScanStr (cf.flats.getD (stack.headD cf.base.start) default) p := rfl
+      rw [hR]
       cases hsc : DFA.flatScanStr (cf.flats.getD (stack.headD cf.base.start) default) p with
       | none => rfl
       | some res =>

@@ -147,9 +147,8 @@ decomposition attributes the remaining lex-only time to the flat scan (~72%), th
 generator cannot speed up). The flat table is `DFA.flatOfDFA` (untrusted); the
 derivative-vector `DFA.scan` remains the specification.
 
-**Inline (closure-free) parser engine.** The generated parser's `run` uses
-`Runtime.Exec.runInline` over a `FlatTable` (the raw action/goto/default/lhs/len
-arrays read inline) instead of the closure-wrapped `ExecTable`. Profiling the
+**Inline (closure-free) parser engine.** The first step was `Runtime.Exec.runInline` over a `FlatTable` (the raw action/goto/default/lhs/len
+arrays read inline) instead of the closure-wrapped `ExecTable` (it is now the intermediate between `Exec.run` and the engine below). Profiling the
 parse-only path attributed a measurable share of the time to `ExecTable`'s six `fun`-field indirect
 calls per step; reading the arrays inline removes them. The `ExecTable` `Exec.run`
 stays the specification: `Runtime.Exec.runInline_eq_run` proves the inline engine
@@ -161,6 +160,21 @@ policies, `cedar-spec/cedar-benchmarking`, same tables, 0 mismatches) measured
 closure 146.9 → inline 130.0 µs/policy (~11.5%).
 
 An `Array` LR stack and input cursor were measured and were not faster than `List`
-(the lexer's `List Char` lever does not transfer to the parser), so the stack stays
-`List`; the remaining parse-only cost is `popN` allocation and per-token semantic
-actions (user code).
+(the lexer's `List Char` lever does not transfer to the parser).
+
+**Fused-reduce engine.** The generated `run` is now `Runtime.Exec.runFast`
+(`Runtime/ExecFast.lean`): a generated stack type `Stk` with one object per cell, a
+fused `fuse<p>` per production that matches the operands, builds the value and pushes
+the goto cell in one call, and a single tail-recursive loop that reads the token list
+directly. `runFast_eq_run` proves it equal to `Exec.run`, with a per-production theorem
+`fuseOK<p>` emitted per grammar, and the verified modules' theorems and axioms are
+unchanged (DESIGN §13). On the same corpus and machine, per policy:
+
+| | before | after |
+|---|---|---|
+| parse only | 153 µs | 43 µs |
+| lex only | 73 µs | 44 µs |
+| lex+parse | 223 µs | 88 µs |
+
+`lake exe cedar-bench <files>` prints these; `BENCH_LEX_ONLY=1` and `BENCH_PARSE_ONLY=1`
+run one phase only, which is what to give `perf record`.

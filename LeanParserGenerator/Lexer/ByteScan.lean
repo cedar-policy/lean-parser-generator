@@ -102,10 +102,58 @@ def byteScanGo (bd : ByteDFA) (bytes : ByteArray) :
         | none => best
       else best
 
+/-- `byteScanGo` with the best match as two loose arguments, `r` (negative for none) and
+    its end index `e`. The `Option (Nat × Nat)` form allocates a `some` and a pair at
+    every accepting state. `byteScanGoU_eq` proves it equal. -/
+def byteScanGoU (bd : ByteDFA) (bytes : ByteArray) :
+    Nat → Nat → Nat → Int → Nat → Option (Nat × Nat)
+  | 0, _, _, r, e => if r < 0 then none else some (r.toNat, e)
+  | fuel + 1, sid, i, r, e =>
+      let a := bd.accept.getD sid (-1)
+      let r' := if a < 0 then r else a
+      let e' := if a < 0 then e else i
+      if h : i < bytes.size then
+        match bd.step sid bytes[i] with
+        | some next => byteScanGoU bd bytes fuel next (i + 1) r' e'
+        | none => if r' < 0 then none else some (r'.toNat, e')
+      else if r' < 0 then none else some (r'.toNat, e')
+
+theorem byteScanGoU_eq (bd : ByteDFA) (bytes : ByteArray) :
+    ∀ (fuel sid i : Nat) (r : Int) (e : Nat) (best : Option (Nat × Nat)),
+      best = (if r < 0 then none else some (r.toNat, e)) →
+      byteScanGoU bd bytes fuel sid i r e = byteScanGo bd bytes fuel sid i best := by
+  intro fuel
+  induction fuel with
+  | zero => intro sid i r e best h; rw [h]; rfl
+  | succ fuel ih =>
+    intro sid i r e best h
+    rw [byteScanGoU, byteScanGo]
+    have hb : (match ByteDFA.acceptOf bd sid with
+        | some rule => some (rule, i)
+        | none => best) =
+        (if (if bd.accept.getD sid (-1) < 0 then r else bd.accept.getD sid (-1)) < 0 then none
+          else some ((if bd.accept.getD sid (-1) < 0 then r else bd.accept.getD sid (-1)).toNat,
+            if bd.accept.getD sid (-1) < 0 then e else i)) := by
+      unfold ByteDFA.acceptOf
+      by_cases ha : bd.accept.getD sid (-1) < 0
+      · simp only [ha, ite_true]; exact h
+      · simp only [ha, ite_false]
+    simp only [hb]
+    by_cases hi : i < bytes.size
+    · simp only [hi, dite_true]
+      cases ByteDFA.step bd sid bytes[i] with
+      | none => rfl
+      | some next => exact ih next (i + 1) _ _ _ rfl
+    · simp only [hi, dite_false]
+
 /-- Longest accepting prefix of `bytes` from byte index `start`, using the byte
     tables. Returns `(rule, byteEndIndex)`; the end index is a code-point boundary. -/
 def byteScan (bd : ByteDFA) (bytes : ByteArray) (start : Nat) : Option (Nat × Nat) :=
-  byteScanGo bd bytes (bytes.size + 1 - start) 0 start none
+  byteScanGoU bd bytes (bytes.size + 1 - start) 0 start (-1) 0
+
+theorem byteScan_eq_go (bd : ByteDFA) (bytes : ByteArray) (start : Nat) :
+    byteScan bd bytes start = byteScanGo bd bytes (bytes.size + 1 - start) 0 start none :=
+  byteScanGoU_eq bd bytes _ _ _ _ _ _ rfl
 
 end DFA
 

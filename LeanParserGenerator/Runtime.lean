@@ -17,6 +17,7 @@
 module
 /- The runtime that generated parsers and lexers import. Does not include the generator. -/
 public import LeanParserGenerator.Runtime.Exec
+public import LeanParserGenerator.Runtime.ExecFast
 public import LeanParserGenerator.Runtime.Span
 public import LeanParserGenerator.Runtime.Diagnostic
 public import LeanParserGenerator.Runtime.Interpreter

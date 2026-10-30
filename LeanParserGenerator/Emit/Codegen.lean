@@ -136,35 +136,48 @@ def emitValueType (e : TyEnv) : EmitM (TSyntax `command) := do
     ctors := ctors.push (← `(Lean.Parser.Command.ctor| | $cn:ident : $tyLeaf → $vId))
   `(command| inductive $vId where $ctors* deriving $(mkIdent `Inhabited):ident)
 
-/-- Emit the token decoder `decode : <Tok> → Nat × V`. Each `%token` name is a
-    constructor of the user's token type; value-carrying ones bind one argument.
+/-- Emit the token decoders `termOf : <Tok> → Nat`, `valOf : <Tok> → V`, and
+    `decode : Positioned <Tok> → Nat × VP`, which pairs them with the token's span.
+    Each `%token` name is a constructor of the user's token type; value-carrying
+    ones bind one argument. The engine calls `termOf` and `valOf` separately, so
+    that reading a lookahead allocates nothing.
 
     The `%eof` token maps to the **augmented** end terminal `$` at index
     `augEofIdx` (= the un-augmented terminal count), NOT its declaration index —
     the LR tables reduce/accept on `$`. Grammars therefore must not reference the
     eof token inside a production; the input list ends with it and it acts as `$`.
     Other tokens map to their declaration indices. -/
-def emitDecoder (s : Surface) (e : TyEnv) (augEofIdx : Nat) : EmitM (TSyntax `command) := do
+def emitDecoder (s : Surface) (e : TyEnv) (augEofIdx : Nat) :
+    EmitM (Array (TSyntax `command)) := do
+  let termId := mkIdent `termOf
+  let valId := mkIdent `valOf
   let decodeId := mkIdent `decode
   let natId := mkIdent `Nat
   let vpId := mkIdent `VP
+  let vId := mkIdent `V
   let tokTyLeaf ← freshLeaf s.tokenType
-  let mut arms : Array (TSyntax `Lean.Parser.Term.matchAltExpr) := #[]
+  let mut termArms : Array (TSyntax `Lean.Parser.Term.matchAltExpr) := #[]
+  let mut valArms : Array (TSyntax `Lean.Parser.Term.matchAltExpr) := #[]
   for (t, i) in s.tokens.zipIdx do
     let idx := if t.name == s.eof then augEofIdx else i
     let idxLit := Syntax.mkNumLit (toString idx)
     let ctor := mkIdent (Name.mkSimple t.name)
-    let spId := mkIdent `sp
     if t.hasVal then
       let valCtor := mkIdent (Name.mkSimple (e.ctorFor t.ty))
       let x := mkIdent `x
-      arms := arms.push (← `(Lean.Parser.Term.matchAltExpr|
-        | ⟨.$ctor:ident $x, $spId⟩ => ($idxLit, $spId, .$valCtor:ident $x)))
+      termArms := termArms.push (← `(Lean.Parser.Term.matchAltExpr| | .$ctor:ident _ => $idxLit))
+      valArms := valArms.push (← `(Lean.Parser.Term.matchAltExpr|
+        | .$ctor:ident $x => .$valCtor:ident $x))
     else
-      arms := arms.push (← `(Lean.Parser.Term.matchAltExpr|
-        | ⟨.$ctor:ident, $spId⟩ => ($idxLit, $spId, .$(mkIdent `unit):ident ())))
+      termArms := termArms.push (← `(Lean.Parser.Term.matchAltExpr| | .$ctor:ident => $idxLit))
+      valArms := valArms.push (← `(Lean.Parser.Term.matchAltExpr|
+        | .$ctor:ident => .$(mkIdent `unit):ident ()))
   let posTy ← `($(mkIdent `Runtime.Positioned) $tokTyLeaf)
-  `(command| def $decodeId : $posTy → $natId × $vpId $arms:matchAlt*)
+  let termCmd ← `(command| def $termId : $tokTyLeaf → $natId $termArms:matchAlt*)
+  let valCmd ← `(command| def $valId : $tokTyLeaf → $vId $valArms:matchAlt*)
+  let decodeCmd ← `(command| def $decodeId : $posTy → $natId × $vpId :=
+    $(mkIdent `Runtime.Exec.decodeWith) $termId $valId)
+  return #[termCmd, valCmd, decodeCmd]
 
 /-- Emit the semantic-action dispatcher `sem : Nat → List V → V`.
 
@@ -220,89 +233,243 @@ def emitSem (s : Surface) (e : TyEnv) (augProd : Nat) : EmitM (TSyntax `command)
   arms := arms.push (← `(Lean.Parser.Term.matchAltExpr| | _, _ => $fallLeaf))
   `(command| def $semId : $natId → $listVP → $vpId $arms:matchAlt*)
 
-/-- Emit the direct-stack reduce `redv : Nat → Stack V → Option (V × V-stack)`.
+/-- The `Stk` cell constructor for a `V` constructor: `cUnit` for `unit`, `c<i>` for
+    `v<i>`. -/
+def cellFor (ctor : String) : String :=
+  if ctor == "unit" then "cUnit" else "c" ++ String.ofList (ctor.toList.drop 1)
 
-    `redv` is the allocation-free counterpart of `sem`: instead of `sem`
-    pattern-matching a `List V` that `popN` first allocates, `redv p stk` matches
-    the top RHS cells of the stack directly (in reverse RHS order — the last RHS
-    symbol is on top), binds and unwraps the operands inline, and returns
-    `some (value, remaining-stack)`. A non-matching shape returns `none`, and the
-    engine (`Runtime.Exec.reduceRedv`) falls back to the `sem`/`popN` path.
+/-- Emit the generated parser stack `Stk` and its `Runtime.Exec.StackOps`.
 
-    The match keys on the production index first (a flat `Nat` match), then on the
-    stack shape, so the generated `reduceRedv_eq` proof scales (see there). The
-    fresh tail binder `__tail` cannot collide with a grammar binder. -/
-def emitRedv (s : Surface) (e : TyEnv) (augProd : Nat) : EmitM (TSyntax `command) := do
-  let redvId := mkIdent `redv
-  let natId := mkIdent `Nat
-  -- Each arm body (a `fun stk => …` over the `Runtime.Exec` API) and the signature
-  -- are opaque leaves; the production-index match keying is the real `Syntax`.
-  let sigLeaf ← freshLeaf "Runtime.Exec.Stack VP → Option (VP × Runtime.Exec.Stack VP)"
+    `Stk` has one cell constructor per semantic type: `cUnit` for `Unit` (no value
+    field) and `c<i>` for the type of `V.v<i>`. A cell holds the state, the span
+    offsets, and the unwrapped value, so a stack cell is one allocation instead of a
+    cons, two pairs, a `Span` and a `V` box. `Stk.toList` maps it to the
+    specification stack `List (Nat × VP)`. Returns `(defs, lawful)`: `lawful`
+    mentions `flat` and goes after it. -/
+def emitStack (s : Surface) (e : TyEnv) : String × String :=
+  let tyCtors : List (String × String × String) :=
+    e.types.toList.zipIdx.map (fun (ty, i) => (s!"c{i}", s!"v{i}", ty))
+  let ctorDecls := tyCtors.map (fun (c, _, ty) =>
+    s!"  | {c} (st : Nat) (b e : String.Pos.Raw) (x : {ty}) (tl : Stk)")
+  let toListArms := tyCtors.map (fun (c, v, _) =>
+    s!"  | .{c} st b e x tl => (st, (⟨b, e⟩, .{v} x)) :: tl.toList")
+  let ofListArms := tyCtors.map (fun (c, v, _) =>
+    s!"  | (st, (sp, .{v} x)) :: tl => .{c} st sp.startPos sp.endPos x (Stk.ofList tl)")
+  let topArms := tyCtors.map (fun (c, _, _) => s!"  | .{c} st _ _ _ _ => st")
+  let acceptArms := tyCtors.map (fun (c, v, _) => s!"  | .{c} _ b e x _ => .ok (⟨b, e⟩, .{v} x)")
+  let pushArms := s.tokens.toList.map (fun t =>
+    if t.hasVal && e.ctorFor t.ty != "unit" then
+      s!"  | ⟨.{t.name} x, sp⟩ => .{cellFor (e.ctorFor t.ty)} st sp.startPos sp.endPos x tl"
+    else if t.hasVal then
+      s!"  | ⟨.{t.name} _, sp⟩ => .cUnit st sp.startPos sp.endPos tl"
+    else
+      s!"  | ⟨.{t.name}, sp⟩ => .cUnit st sp.startPos sp.endPos tl")
+  let defs := paras [
+    lines ([
+      "/-- The parser stack: one cell constructor per semantic type (`cUnit` for `Unit`),",
+      "    each holding the state, the span offsets, and the unwrapped value. -/",
+      "inductive Stk where",
+      "  | nil",
+      "  | fail (orig : Stk)",
+      "  | cUnit (st : Nat) (b e : String.Pos.Raw) (tl : Stk)"] ++ ctorDecls),
+    lines ([
+      "/-- The specification stack this stack represents. -/",
+      "def Stk.toList : Stk → Runtime.Exec.Stack VP",
+      "  | .nil => []",
+      "  | .fail _ => []",
+      "  | .cUnit st b e tl => (st, (⟨b, e⟩, .unit ())) :: tl.toList"] ++ toListArms),
+    lines ([
+      "def Stk.ofList : Runtime.Exec.Stack VP → Stk",
+      "  | [] => .nil",
+      "  | (st, (sp, .unit _)) :: tl => .cUnit st sp.startPos sp.endPos (Stk.ofList tl)"] ++
+      ofListArms),
+    lines ([
+      "theorem Stk.toList_ofList (l : Runtime.Exec.Stack VP) : (Stk.ofList l).toList = l := by",
+      "  induction l with",
+      "  | nil => rfl",
+      "  | cons hd tl ih =>",
+      "    obtain ⟨st, sp, v⟩ := hd",
+      "    cases v <;> (simp only [Stk.ofList, Stk.toList, ih]; try rfl)"]),
+    lines ([
+      "@[inline] def Stk.top (start : Nat) : Stk → Nat",
+      "  | .nil => start",
+      "  | .fail _ => start",
+      "  | .cUnit st _ _ _ => st"] ++ topArms),
+    lines ([
+      "@[inline] def Stk.isFail : Stk → Bool",
+      "  | .fail _ => true",
+      "  | _ => false"]),
+    lines ([
+      "@[inline] def Stk.unfail : Stk → Stk",
+      "  | .fail s => s",
+      "  | s => s"]),
+    lines ([
+      "def Stk.accept : Stk → Runtime.Exec.Result VP",
+      "  | .nil => .err \"accept on empty stack\"",
+      "  | .fail _ => .err \"accept on empty stack\"",
+      "  | .cUnit _ b e _ => .ok (⟨b, e⟩, .unit ())"] ++ acceptArms),
+    lines ([
+      s!"@[inline] def Stk.pushTok (st : Nat) (tok : Runtime.Positioned {s.tokenType}) (tl : Stk) : Stk :=",
+      "  match tok with"] ++ pushArms),
+    lines ([
+      "instance stackOps : Runtime.Exec.StackOps V " ++ s.tokenType ++ " Stk where",
+      "  nil := .nil",
+      "  fail := Stk.fail",
+      "  isFail := Stk.isFail",
+      "  unfail := Stk.unfail",
+      "  top := Stk.top",
+      "  pushTok := Stk.pushTok",
+      s!"  pushEof := fun st tl => Stk.pushTok st ⟨.{s.eof}, Runtime.Span.dummy⟩ tl",
+      "  accept := Stk.accept",
+      "  toList := Stk.toList",
+      "  ofList := Stk.ofList"])]
+  let lawful := lines [
+    "theorem stackLawful : stackOps.Lawful valOf flat.eof.2 where",
+    "  toList_nil := rfl",
+    "  isFail_fail := fun _ => rfl",
+    "  unfail_fail := fun _ => rfl",
+    "  top_eq := by intro start s; cases s <;> rfl",
+    "  pushTok_eq := by intro st tok s; obtain ⟨v, sp⟩ := tok; cases v <;> rfl",
+    "  pushEof_eq := by intro st s; rfl",
+    "  accept_eq := by intro s; cases s <;> rfl",
+    "  toList_ofList := Stk.toList_ofList"]
+  (defs, lawful)
+
+/-- Emit the fused reduces: one `fuse<p> : Stk V → Stk V` per production (as
+    `Syntax`), and as raw text the dispatcher `fuse : Nat → Stk V → Stk V`, one
+    correctness theorem per production, and their combination `fuseOK`.
+
+    `fuse<p> stk` reduces by production `p` in one call. It matches the top RHS cells
+    of the stack (the last RHS symbol is on top), binds and unwraps the operands,
+    builds the semantic value, and pushes the goto cell with `pushGoto`, all without
+    an intermediate `List` or `Option`. It returns `Stk.nil` when the stack shape
+    does not match or the goto entry is missing; the augmented production uses
+    `fuseNone`, which always returns `Stk.nil`. The engine then reduces through
+    `reduceInline` (`Runtime/ExecFast.lean`).
+
+    `fuse` reads the per-production function from an array. A `Nat`-literal `match`
+    with one arm per production compiles to a chain of comparisons, one per earlier
+    arm, so the array read is cheaper at run time. It also keeps the proofs per
+    production: each `fuseOK<p>` unfolds only `fuse<p>`, and Lean elaborates them in
+    parallel. The fresh tail binder `__tail` cannot collide with a grammar binder.
+
+    Returns `(defs, dispatch, proofs)`: `dispatch` goes before `flat`, `proofs`
+    after it. -/
+def emitFuse (s : Surface) (e : TyEnv) (g' : IR.Grammar) (startState augProd : Nat) :
+    EmitM (Array (TSyntax `command) × String × String) := do
   -- Span name for element `i` (original left-to-right index), matching `emitSem`.
   let spanName := fun (elem : Frontend.Elem) (i : Nat) =>
     match elem.binder with
     | some nm => s!"{nm}_span"
     | none => s!"__s{i}"
+  -- A cell carries its span as two offsets `<span>__b`/`<span>__e`. The production
+  -- span starts where the first symbol starts and ends where the last one ends
+  -- (`Span.merge`); an empty RHS gets the dummy span `0..0`, as in `emitSem`.
   let foldSpan := fun (elems : Array Frontend.Elem) =>
-    if elems.size == 0 then "Runtime.Span.dummy"
-    else if elems.size == 1 then spanName elems[0]! 0
-    else s!"Runtime.Span.merge {spanName elems[0]! 0} {spanName elems[elems.size-1]! (elems.size-1)}"
-  let mut arms : Array (TSyntax `Lean.Parser.Term.matchAltExpr) := #[]
+    if elems.size == 0 then "⟨0⟩ ⟨0⟩"
+    else s!"{spanName elems[0]! 0}__b {spanName elems[elems.size-1]! (elems.size-1)}__e"
+  let numN := g'.numNonterminals
+  let mut cmds : Array (TSyntax `command) := #[]
+  let mut proofs : Array String := #[]
+  let mut names : Array String := #[]
+  let mut oks : Array String := #[]
   let mut p := 0
   for r in s.rules do
     let lhsCtor := e.ctorFor r.ty
     for alt in r.alts do
-      -- Cells top-first (reverse RHS): each is `(_, <span>, .<ctor> <binder>)` or
-      -- `(_, <span>, _)`; the span name uses the element's ORIGINAL index so the
-      -- fold agrees with `emitSem`. `_` is the state slot.
-      let cells := (alt.elems.zipIdx.map (fun (elem, i) =>
+      let lhs := (g'.prods.getD p default).lhs
+      -- Left-to-right: the first RHS element is the innermost cell, the last the top.
+      -- Each cell is matched with the constructor of its symbol's semantic type.
+      let mut pat := "__tail"
+      -- An action may name `<binder>_span`; rebuild it from the offsets. The
+      -- compiler drops the `let` when the action does not use it.
+      let mut lets := ""
+      for (elem, i) in alt.elems.zipIdx do
+        let sn := spanName elem i
+        let ctor := e.ctorFor (symTy s elem.sym)
+        let cell := cellFor ctor
         match elem.binder with
-        | some nm => s!"(_, {spanName elem i}, .{e.ctorFor (symTy s elem.sym)} {nm})"
-        | none => s!"(_, {spanName elem i}, _)")).reverse
-      let fb := s!"(Runtime.Exec.popN (lenData.getD {p} 0) stk).map (fun r => (sem {p} r.1, r.2))"
+        | some nm =>
+          lets := lets ++ s!"let {sn} : Runtime.Span := ⟨{sn}__b, {sn}__e⟩; "
+          if ctor == "unit" then
+            pat := s!".{cell} _ {sn}__b {sn}__e ({pat})"
+            lets := lets ++ s!"let {nm} : Unit := (); "
+          else
+            pat := s!".{cell} _ {sn}__b {sn}__e {nm} ({pat})"
+        | none =>
+          if ctor == "unit" then
+            pat := s!".{cell} _ {sn}__b {sn}__e ({pat})"
+          else
+            pat := s!".{cell} _ {sn}__b {sn}__e _ ({pat})"
+      let lhsCell := cellFor lhsCtor
+      let mk :=
+        if lhsCtor == "unit" then s!"(fun __st => .cUnit __st {foldSpan alt.elems} __tail)"
+        else s!"(fun __st => .{lhsCell} __st {foldSpan alt.elems} ({alt.action}) __tail)"
+      let failv := if alt.elems.isEmpty then "(fun _ => .fail __tail)" else "(fun _ => .fail stk)"
+      let push :=
+        lets ++
+        s!"Runtime.Exec.pushGotoWith gotoData {numN} {lhs} (Stk.top {startState} __tail) " ++
+        s!"{mk} {failv}"
       let body :=
-        if cells.isEmpty then
-          s!"fun stk => some (({foldSpan alt.elems}, .{lhsCtor} ({alt.action})), stk)"
+        if alt.elems.isEmpty then
+          s!"fun __tail => {push}"
         else
-          let stkPat := joinWith " :: " cells.toList ++ " :: __tail"
-          s!"fun stk => match stk with\n" ++
-          s!"    | {stkPat} => some (({foldSpan alt.elems}, .{lhsCtor} ({alt.action})), __tail)\n" ++
-          s!"    | stk => {fb}"
-      let pLit := Syntax.mkNumLit (toString p)
+          s!"fun stk => match stk with\n    | {pat} => {push}\n    | _ => .fail stk"
+      let name := s!"fuse{p}"
+      let sigLeaf ← freshLeaf "Stk → Stk"
       let bodyLeaf ← freshLeaf body
-      arms := arms.push (← `(Lean.Parser.Term.matchAltExpr| | $pLit => $bodyLeaf))
+      cmds := cmds.push (← `(command| def $(mkIdent (Name.mkSimple name)) : $sigLeaf := $bodyLeaf))
+      names := names.push name
+      oks := oks.push s!"fuseOK{p}"
+      -- `apply` unifies the lemma's conclusion with the goal first, which fixes the
+      -- stack, the cell, and `mk`; the remaining goals are closed by `rfl` (`hred`) or
+      -- `fun _ => rfl` (`hmk`, `hmkf`). `dsimp only` removes the action's `let`s.
+      let close := [
+        s!"    apply Runtime.Exec.fuseOKAt_of_pop stackLawful flat {p}",
+        "    all_goals first | exact fun _ => rfl | rfl"]
+      let proof :=
+        if alt.elems.isEmpty then
+          lines ([
+            s!"theorem fuseOK{p} : Runtime.Exec.FuseOKAt stackOps flat {p} fuse{p} := by",
+            "  intro stk",
+            s!"  unfold fuse{p}",
+            "  · try dsimp only"] ++ close)
+        else
+          lines ([
+            s!"theorem fuseOK{p} : Runtime.Exec.FuseOKAt stackOps flat {p} fuse{p} := by",
+            "  intro stk",
+            s!"  unfold fuse{p}",
+            "  split",
+            "  · try dsimp only"] ++ close ++ [
+            "  · exact ⟨fun _ => rfl, fun h => by cases h⟩"])
+      proofs := proofs.push proof
       p := p + 1
-  let augLit := Syntax.mkNumLit (toString augProd)
-  let fbAug := s!"(Runtime.Exec.popN (lenData.getD {augProd} 0) stk).map (fun r => (sem {augProd} r.1, r.2))"
-  let augBody := s!"fun stk => match stk with\n" ++
-    s!"    | (_, _, _) :: (_, x_span, x) :: __tail => some ((x_span, x), __tail)\n" ++
-    s!"    | stk => {fbAug}"
-  let augLeaf ← freshLeaf augBody
-  arms := arms.push (← `(Lean.Parser.Term.matchAltExpr| | $augLit => $augLeaf))
-  let pId := mkIdent `p
-  let fallLeaf ← freshLeaf "fun stk => (Runtime.Exec.popN (lenData.getD p 0) stk).map (fun r => (sem p r.1, r.2))"
-  arms := arms.push (← `(Lean.Parser.Term.matchAltExpr| | $pId => $fallLeaf))
-  `(command| def $redvId : $natId → $sigLeaf $arms:matchAlt*)
-
-/-- Emit the per-grammar `redvMatches` obligation: the emitted `redv` equals the
-    `popN`+`sem` composite (`Runtime.Exec.popNsem`) for every production and stack.
-    Proved by `fun_cases` on the production index (a flat `Nat` match — cheap,
-    unlike casing the deeply nested stack shapes), reducing the concrete-`p` match
-    with `simp only [redv]`, then `rfl` (empty RHS / fallback) or `split <;> rfl`
-    (case the stack shape). Feeds `Runtime.Exec.runRedv_eq_run`. -/
-def emitReduceRedvEq : String := lines [
-  "set_option linter.unusedSimpArgs false in",
-  "theorem redvMatches (p : Nat) (stk : Runtime.Exec.Stack VP) :",
-  "    flat.redv p stk = Runtime.Exec.popNsem flat p stk := by",
-  "  show redv p stk = Runtime.Exec.popNsem flat p stk",
-  "  unfold Runtime.Exec.popNsem",
-  "  fun_cases redv p <;> simp only [redv] <;>",
-  "    (first",
-  "      | rfl",
-  "      | (split <;>",
-  "          (first",
-  "            | rfl",
-  "            | simp [flat, lenData, Runtime.Exec.popN, Runtime.Exec.popN.go, sem])))" ]
+  -- A balanced tree of `fuseIf` over the leaves `fuseLeaf p fuse<p>`; the production
+  -- index is below `names.size` for every real production. The augmented production
+  -- and out-of-range indices reach the empty tree and decline.
+  let rec tree (lo hi : Nat) (fuel : Nat) : String × String :=
+    match fuel with
+    | 0 => ("(Runtime.Exec.fuseLeaf stackOps 0 (Runtime.Exec.fuseNone stackOps))", "")
+    | fuel + 1 =>
+      if hi ≤ lo then
+        (s!"(fun _ => Runtime.Exec.fuseNone stackOps)", "fun _ => Runtime.Exec.fuseOKAt_none stackLawful flat _")
+      else if hi = lo + 1 then
+        (s!"(Runtime.Exec.fuseLeaf stackOps {lo} fuse{lo})",
+         s!"(Runtime.Exec.fuseOK_leaf stackLawful fuseOK{lo})")
+      else
+        let mid := (lo + hi) / 2
+        let (a, pa) := tree lo mid fuel
+        let (b, pb) := tree mid hi fuel
+        (s!"(Runtime.Exec.fuseIf {mid} {a} {b})", s!"(Runtime.Exec.fuseOK_if {pa} {pb})")
+  let (treeTerm, treeProof) := tree 0 names.size (names.size + 1)
+  let _ := augProd
+  let dispatch := lines [
+    "def fuse : Nat → Stk → Stk :=",
+    "  " ++ treeTerm ]
+  let combine := lines [
+    "theorem fuseOK : Runtime.Exec.FuseOK stackOps flat fuse :=",
+    "  " ++ treeProof ]
+  return (cmds, dispatch, paras (proofs.toList ++ [combine]))
 
 /-- Emit the flat parser tables (action/goto/defRed/lhs/len) for the augmented
     grammar.
@@ -447,7 +614,6 @@ def emitTable (g' : IR.Grammar) (tables : Tables) (startState : Nat)
     "  lhsData := lhsData",
     "  lenData := lenData",
     "  sem := sem",
-    "  redv := redv",
     "}",
     "",
     "def table : Runtime.Exec.ExecTable VP := flat.toExecTable" ]
@@ -531,20 +697,25 @@ def generateFrom (s : Surface) (prepared : PreparedGrammar)
     String.ofList (moduleName.toList.map (fun c =>
       if c.isAlphanum then c.toLower else '_'))
   -- The module is assembled inside `EmitM`: the per-grammar, leaf-bearing
-  -- definitions (`V`, `decode`, `sem`, `redv`, the flat table arrays) are built as
+  -- definitions (`V`, the decoders, `sem`, the `fuse<p>`, the flat table arrays) are built as
   -- `Lean.Syntax` and pretty-printed, so a malformed emission fails against Lean's
   -- grammar here; the fixed scaffolding (imports, `%header`, options, `flat`
-  -- record, `redvMatches`, entry points, namespace) stays as raw text.
+  -- record, `fuse` dispatch and `fuseOK<p>` proofs, entry points, namespace) stays as raw text.
   Quote.emitModule do
     let valueTypeCmd ← emitValueType e
-    let decodeCmd ← emitDecoder s e g.numTerminals
+    let decodeCmds ← emitDecoder s e g.numTerminals
     let semCmd ← emitSem s e augProd
-    let redvCmd ← emitRedv s e augProd
+    let (fuseCmds, fuseDispatch, fuseProofs) ← emitFuse s e g' startState augProd
+    let (stackDefs, stackLawful) := emitStack s e
     let (tablePrefix, dataStr, tableTail) ← emitTable g' tables startState s.eof s.options.compressTables
     let valueTypeStr ← Quote.renderCmd valueTypeCmd
-    let decodeStr ← Quote.renderCmd decodeCmd
+    let mut decodeStrs : Array String := #[]
+    for (c, i) in decodeCmds.zipIdx do
+      let str ← Quote.renderCmd c
+      -- `termOf` (the first decoder) is inlined into the engine loop.
+      decodeStrs := decodeStrs.push (if i == 0 then "@[inline] " ++ str else str)
     let semStr ← Quote.renderCmd semCmd
-    let redvStr ← Quote.renderCmd redvCmd
+    let fuseStr ← Quote.renderCmds fuseCmds
     let importLine := match lexerModule with
       | some m => s!"public import {m}"
       | none => ""
@@ -553,6 +724,7 @@ def generateFrom (s : Surface) (prepared : PreparedGrammar)
       s!"-- Generated by LeanParserGenerator from a .lig grammar. DO NOT EDIT.",
       s!"-- Module: {moduleName}. Backend: parser.",
       "public import LeanParserGenerator.Runtime.Exec",
+      "public import LeanParserGenerator.Runtime.ExecFast",
       "public import LeanParserGenerator.Runtime.Span",
       "public import LeanParserGenerator.Runtime.Diagnostic",
       importLine,
@@ -561,7 +733,7 @@ def generateFrom (s : Surface) (prepared : PreparedGrammar)
         ++ "set_option maxRecDepth 1000000\n"
         ++ "set_option maxHeartbeats 40000000",
       -- The parser's public API is its value type, `run`, and `parse`. The parse
-      -- tables, `decode`, `sem`, and `redv` are implementation detail: `public
+      -- tables, the decoders, `sem`, and `fuse` are implementation detail: `public
       -- section` (not `@[expose]`) keeps their bodies in the private scope. The
       -- paired verified spec reaches them for its refinement proofs via `import
       -- all` (same package) and `native_decide` via `meta import` (module system,
@@ -570,9 +742,9 @@ def generateFrom (s : Surface) (prepared : PreparedGrammar)
       "namespace " ++ moduleName ]
     -- The executable engine runs at `VP := Span × V`: each stack value carries its
     -- source span alongside the semantic value `V`. `decode` attaches each token's
-    -- span; `sem`/`redv` bind `<x>_span` per RHS symbol and fold the production
+    -- span; `sem`/`fuse<p>` bind `<x>_span` per RHS symbol and fold the production
     -- span (Menhir's start..end). `V` and the dependent refinement stay value-only.
-    -- Generated `sem`/`redv` bind spans an action may ignore, so silence the
+    -- Generated `sem`/`fuse<p>` bind spans an action may ignore, so silence the
     -- package-wide unused-variable linter here.
     let vpAbbrev := lines [
       "abbrev VP := Runtime.Span × V",
@@ -581,7 +753,7 @@ def generateFrom (s : Surface) (prepared : PreparedGrammar)
     let entry := lines [
       s!"@[export {exportPrefix}_run]",
       s!"def run (input : List (Runtime.Positioned {s.tokenType})) (logNSteps : Nat := 20) : Runtime.Exec.Result VP :=",
-      "  Runtime.Exec.runRedv flat (input.map decode) logNSteps",
+      "  Runtime.Exec.runFast (ops := stackOps) flat fuse termOf input logNSteps",
       "",
       s!"@[export {exportPrefix}_parse]",
       s!"def parse (input : List (Runtime.Positioned {s.tokenType})) (logNSteps : Nat := 20) : Option {startTy} :=",
@@ -592,12 +764,13 @@ def generateFrom (s : Surface) (prepared : PreparedGrammar)
     -- / diagnoseSpanned / errorMessage. EOF terminal index is `g.numTerminals`; the
     -- augmented action-table width is `g.numTerminals + 1`.
     let diagnosticsStr := emitDiagnostics s (g.numTerminals + 1) g.numTerminals
-    -- Order: data arrays and their `buildDense` prefix, then `redv` (uses the
-    -- arrays and `sem`), then `flat`/`table` (use `redv`).
+    -- Order: data arrays and their `buildDense` prefix, then the `fuse<p>` (read
+    -- `gotoData`) and their dispatch, then `flat`/`table`, then the `fuseOK<p>`
+    -- proofs (mention `flat`).
     let body := (if tablePrefix.isEmpty then [] else [tablePrefix]) ++
-      [dataStr, redvStr, tableTail, emitReduceRedvEq]
+      [stackDefs, dataStr, fuseStr, fuseDispatch, tableTail, stackLawful, fuseProofs]
     return paras <|
-      [header, valueTypeStr, vpAbbrev, decodeStr, semStr] ++ body ++
+      [header, valueTypeStr, vpAbbrev] ++ decodeStrs.toList ++ [semStr] ++ body ++
       [entry, diagnosticsStr, "end " ++ moduleName, ""]
 
 /-- Generate the parser backend, including grammar preparation. -/

@@ -571,11 +571,109 @@ def flatScanStrGo {s : String} (f : FlatDFA) :
         | some next => flatScanStrGo f fuel next (p.next h) (charsSoFar + 1) best
         | none => best
 
+/-- The result of a scan: no accepting prefix, or the rule, the number of characters,
+    and the end position of the longest one. One constructor with three fields,
+    instead of `Option (Nat × Nat × s.Pos)`, which allocates a `some` and two pairs. -/
+inductive ScanRes (s : String) where
+  | miss : ScanRes s
+  | hit (rule len : Nat) (endPos : s.Pos) : ScanRes s
+
+namespace ScanRes
+
+/-- The `Option` form the specification (`scanStr`) uses. -/
+def toOption {s : String} : ScanRes s → Option (Nat × Nat × s.Pos)
+  | .miss => none
+  | .hit r l e => some (r, l, e)
+
+/-- Eliminator used by the tokenizers, so that proofs can rewrite it to a `match` on
+    the `Option` form. -/
+@[inline] def elim {s : String} {α : Sort _} (r : ScanRes s)
+    (hit : Nat → Nat → s.Pos → α) (miss : α) : α :=
+  match r with
+  | .miss => miss
+  | .hit a b c => hit a b c
+
+theorem elim_eq {s : String} {α : Sort _} (r : ScanRes s) (hit : Nat → Nat → s.Pos → α)
+    (miss : α) :
+    r.elim hit miss = match r.toOption with
+      | some (a, b, c) => hit a b c
+      | none => miss := by
+  cases r <;> rfl
+
+end ScanRes
+
+/-- The best accepting prefix, from its unpacked fields: rule `r` (negative for none),
+    `c` characters, ending at `q`. -/
+@[inline] def packBest {s : String} (r : Int) (c : Nat) (q : s.Pos) : ScanRes s :=
+  if r < 0 then .miss else .hit r.toNat c q
+
+/-- `flatScanStrGo` with the best match carried as three loose arguments instead of an
+    `Option (Nat × Nat × s.Pos)`. The packed form allocates a `some` and two tuples at
+    every accepting state, which is every character of an identifier or number; this
+    form allocates nothing in the loop. `flatScanStrGoU_eq` proves it equal. -/
+def flatScanStrGoU {s : String} (f : FlatDFA) :
+    Nat → Nat → s.Pos → Nat → Int → Nat → s.Pos → ScanRes s
+  | 0, _, _, _, r, c, q => packBest r c q
+  | fuel + 1, sid, p, chars, r, c, q =>
+      let a := f.accept.getD sid (-1)
+      let r' := if a < 0 then r else a
+      let c' := if a < 0 then c else chars
+      let q' := if a < 0 then q else p
+      if h : p = s.endPos then packBest r' c' q'
+      else
+        let ch := p.get h
+        match FlatDFA.step f sid ch with
+        | some next => flatScanStrGoU f fuel next (p.next h) (chars + 1) r' c' q'
+        | none => packBest r' c' q'
+
+theorem flatScanStrGoU_eq {s : String} (f : FlatDFA) :
+    ∀ (fuel sid : Nat) (p : s.Pos) (chars : Nat) (r : Int) (c : Nat) (q : s.Pos)
+      (best : Option (Nat × Nat × s.Pos)), best = (packBest r c q).toOption →
+      (flatScanStrGoU f fuel sid p chars r c q).toOption
+        = flatScanStrGo f fuel sid p chars best := by
+  intro fuel
+  induction fuel with
+  | zero => intro sid p chars r c q best h; rw [h]; rfl
+  | succ fuel ih =>
+    intro sid p chars r c q best h
+    rw [flatScanStrGoU, flatScanStrGo]
+    have hb : (match FlatDFA.acceptOf f sid with
+        | some rule => some (rule, chars, p)
+        | none => best) =
+        (packBest (if f.accept.getD sid (-1) < 0 then r else f.accept.getD sid (-1))
+          (if f.accept.getD sid (-1) < 0 then c else chars)
+          (if f.accept.getD sid (-1) < 0 then q else p)).toOption := by
+      unfold FlatDFA.acceptOf
+      by_cases ha : f.accept.getD sid (-1) < 0
+      · simp only [ha, ite_true]; exact h
+      · simp only [ha, ite_false]
+        unfold packBest
+        have ha' : ¬ (f.accept.getD sid (-1) < 0) := ha
+        simp only [ha', ite_false]
+        rfl
+    simp only [hb]
+    by_cases hend : p = s.endPos
+    · simp only [hend, dite_true]
+    · simp only [hend, dite_false]
+      cases FlatDFA.step f sid (p.get hend) with
+      | none => rfl
+      | some next => exact ih next (p.next hend) (chars + 1) _ _ _ _ rfl
+
 /-- Longest accepting prefix of `s` from `start`, over a `String` by its `String.Pos`
-    cursor, using the flat tables. The fast runtime analog of `scanStr`. -/
+    cursor, using the flat tables. The fast runtime analog of `scanStr`; the
+    tokenizers call this and match on the result directly. -/
+def flatScanStrR {s : String} (f : FlatDFA) (start : s.Pos) : ScanRes s :=
+  flatScanStrGoU f (s.utf8ByteSize + 1) 0 start 0 (-1) 0 start
+
+/-- The `Option` form of `flatScanStrR`, which the proofs use. -/
 def flatScanStr {s : String} (f : FlatDFA) (start : s.Pos) :
     Option (Nat × Nat × s.Pos) :=
-  flatScanStrGo f (s.utf8ByteSize + 1) 0 start 0 none
+  (flatScanStrR f start).toOption
+
+/-- The runtime scanner is the specification walk `flatScanStrGo` from the empty best. -/
+theorem flatScanStr_eq_go {s : String} (f : FlatDFA) (start : s.Pos) :
+    flatScanStr f start = flatScanStrGo f (s.utf8ByteSize + 1) 0 start 0 none :=
+  flatScanStrGoU_eq f _ _ _ _ _ _ _ _ rfl
 
 end DFA
 

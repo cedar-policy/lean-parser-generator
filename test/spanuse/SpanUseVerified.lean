@@ -527,8 +527,10 @@ theorem parserRunRefines (input : List grammarInst.Token) (logNSteps : Nat) :
       (SpanUseParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
   have hrun : SpanUseParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps
       = Runtime.Exec.run SpanUseParser.table (input.map executableRefinement.decode) logNSteps := by
-    simp only [SpanUseParser.run, SpanUseParser.table, executableRefinement, List.map_map,
-      Runtime.Exec.runRedv_eq_run SpanUseParser.flat SpanUseParser.redvMatches]
+    simp only [SpanUseParser.run]
+    rw [Runtime.Exec.runFast_eq_run SpanUseParser.stackOps SpanUseParser.flat SpanUseParser.fuse
+      SpanUseParser.termOf SpanUseParser.valOf SpanUseParser.stackLawful SpanUseParser.fuseOK]
+    simp only [SpanUseParser.table, executableRefinement, List.map_map]
     rfl
   rw [hrun]
   simpa [executableRefinement] using

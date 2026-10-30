@@ -1258,8 +1258,10 @@ theorem parserRunRefines (input : List grammarInst.Token) (logNSteps : Nat) :
       (LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
   have hrun : LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps
       = Runtime.Exec.run LeanParserGenerator.Frontend.Generated.LigParser.table (input.map executableRefinement.decode) logNSteps := by
-    simp only [LeanParserGenerator.Frontend.Generated.LigParser.run, LeanParserGenerator.Frontend.Generated.LigParser.table, executableRefinement, List.map_map,
-      Runtime.Exec.runRedv_eq_run LeanParserGenerator.Frontend.Generated.LigParser.flat LeanParserGenerator.Frontend.Generated.LigParser.redvMatches]
+    simp only [LeanParserGenerator.Frontend.Generated.LigParser.run]
+    rw [Runtime.Exec.runFast_eq_run LeanParserGenerator.Frontend.Generated.LigParser.stackOps LeanParserGenerator.Frontend.Generated.LigParser.flat LeanParserGenerator.Frontend.Generated.LigParser.fuse
+      LeanParserGenerator.Frontend.Generated.LigParser.termOf LeanParserGenerator.Frontend.Generated.LigParser.valOf LeanParserGenerator.Frontend.Generated.LigParser.stackLawful LeanParserGenerator.Frontend.Generated.LigParser.fuseOK]
+    simp only [LeanParserGenerator.Frontend.Generated.LigParser.table, executableRefinement, List.map_map]
     rfl
   rw [hrun]
   simpa [executableRefinement] using

@@ -30,8 +30,9 @@ Everything here is total and closed-form. `Runtime.Refinement` proves generated
 tables simulate `Runtime.Interpreter`; bugs in construction or emission therefore
 fail the generated refinement obligations.
 
-The generator emits an `ExecTable V` value plus a token-decoding function, and the
-entry point is `Exec.run`.
+The generator emits an `ExecTable V` value plus a token-decoding function. `Exec.run`
+is the specification; generated parsers run `Runtime.Exec.runFast`
+(`Runtime/ExecFast.lean`), which is proved equal to it.
 -/
 
 
@@ -188,12 +189,12 @@ calls*. Profiling the generated parser (docs/DESIGN.md §13) attributes a measur
 time to that indirection.
 
 `FlatTable` holds the raw arrays and the two row widths directly, and
-`runInline`/`stepInline`/`parseFixInline` read them inline — no closure calls. The
-generated backend runs `runInline`; `runInline_eq_run` proves it equals
+`runInline`/`stepInline`/`parseFixInline` read them inline — no closure calls.
+`runInline_eq_run` proves it equals
 `run (FlatTable.toExecTable …)`, so the refinement theorem (`run_refines`,
 `parse_eq_dependent`) transfers unchanged: the closure `ExecTable` remains the
-specification, and the inline engine is a verified-equal running object, exactly the
-a-posteriori pattern the lexer's flat scanner uses against `DFA.scan`. -/
+specification. The generated backend runs `runFast` (`Runtime/ExecFast.lean`), which
+is proved equal to `runInline`. -/
 
 /-- The raw flat parser tables, without the `ExecTable` closure wrappers.
     `actWidth` / `gotoWidth` are the row widths (`numTerminals` / `numNonterminals`). -/
@@ -209,15 +210,6 @@ structure FlatTable (V : Type) where
   lhsData : Array Nat
   lenData : Array Nat
   sem : Nat → List V → V
-  /-- Direct-stack reduce: for production `p` and stack `stk`, if the top RHS
-      cells of `stk` match `p`'s shape, return the semantic value and the popped
-      stack `(sem p args, rest)` **without allocating the `List V`** that `sem`
-      would otherwise pattern-match; otherwise return `none` and the engine
-      falls back to the `sem`-over-`popN` path. The generated backend emits a
-      `redv` whose non-`none` result equals `popN`+`sem` production by
-      production (`reduceRedv_eq`), so the fast engine `runRedv` is proved equal
-      to `runInline` and inherits every refinement theorem. -/
-  redv : Nat → List (Nat × V) → Option (V × List (Nat × V))
 
 /-- The `ExecTable` whose closure fields are exactly the ones the emitter writes
     over a `FlatTable`'s arrays. This is definitionally the emitted `table`. -/
@@ -280,7 +272,7 @@ def parseFixInline (f : FlatTable V) (stk : Stack V) (input : List (Nat × V)) :
     | .inl result => .inl result
     | .inr (stk', input') => parseFixInline f stk' input' logN
 
-/-- Run the inline (closure-free) engine. This is what the generated backend runs. -/
+/-- Run the inline (closure-free) engine. `runFast_eq_run` goes through it. -/
 def runInline (f : FlatTable V) (input : List (Nat × V)) (logNSteps : Nat := 20) :
     Result V :=
   match parseFixInline f [] input logNSteps with
@@ -335,120 +327,10 @@ theorem runInline_eq_run (f : FlatTable V) (input : List (Nat × V)) (logNSteps 
     runInline f input logNSteps = run f.toExecTable input logNSteps := by
   simp only [runInline, run, parseFixInline_eq]
 
-/-! ### Direct-stack (allocation-free) engine
-
-`reduceInline` still allocates a `List V` per reduce (`popN` builds the operand
-list, `sem` pattern-matches it). The direct-stack engine reads the operands off
-the stack in one match and computes the value inline, via the emitted `f.redv`.
-`f.redv p stk = some (v, stk')` means the top RHS cells of `stk` match production
-`p` and `(v, stk')` is `(sem p args, popped-stack)`; `none` means the shape did
-not match and the engine falls back to the `reduceInline` path (never taken on a
-validated parser, but kept so the equivalence is unconditional).
-
-The equivalence `reduceRedv f p stk = reduceInline f p stk` is grammar-specific —
-it holds because the emitted `redv` corresponds to `popN`+`sem` production by
-production — so it is passed in as a hypothesis `hred`. Given it, `runRedv` equals
-`runInline` (and hence `run f.toExecTable`), so all refinement/soundness theorems
-transfer unchanged. -/
-
-/-- The `popN`+`sem` composite the emitted `redv` must equal: pop the RHS, run
-    `sem` on the operand list. `reduceInline` is `reduceRedv` with `f.redv`
-    replaced by this. -/
+/-- The `popN`+`sem` composite: pop the RHS of production `p` and run `sem` on the
+    operand list. `reduceInline` is this followed by the goto. The generated fused
+    reduces are proved against it (`Runtime/ExecFast.lean`). -/
 def popNsem (f : FlatTable V) (p : Nat) (stk : Stack V) : Option (V × Stack V) :=
   (popN (f.lenData.getD p 0) stk).map (fun r => (f.sem p r.1, r.2))
-
-/-- One reduce using `f.redv` directly: `redv p stk = some (v, stk')` gives the
-    value and popped stack in one match (no `List V` allocation); `none` is stack
-    underflow, exactly as `popN` returns `none`. When `f.redv = popNsem f` (the
-    emitted obligation `redvMatches`), this equals `reduceInline`. -/
-def reduceRedv (f : FlatTable V) (p : Nat) (stk : Stack V) : Result V ⊕ Stack V :=
-  match f.redv p stk with
-  | some (v, stk') =>
-    match f.gotoData.getD ((f.topState stk') * f.gotoWidth + f.lhsData.getD p 0) none with
-    | some s' => .inr ((s', v) :: stk')
-    | none => .inl (.ok v)
-  | none => .inl (.err s!"reduce: stack underflow on production {p}")
-
-/-- One step using `reduceRedv`; identical to `stepInline` except for the reduce. -/
-def stepRedv (f : FlatTable V) (stk : Stack V) (input : List (Nat × V)) :
-    Result V ⊕ (Stack V × List (Nat × V)) :=
-  let s := f.topState stk
-  match f.defRedData.getD s none with
-  | some p =>
-    match reduceRedv f p stk with
-    | .inl r => .inl r
-    | .inr stk' => .inr (stk', input)
-  | none =>
-    let (t, v) := input.getD 0 f.eof
-    match f.actionData.getD (s * f.actWidth + t) .error with
-    | .shift s' => .inr (((s', v) :: stk), input.drop 1)
-    | .reduce p =>
-      match reduceRedv f p stk with
-      | .inl r => .inl r
-      | .inr stk' => .inr (stk', input)
-    | .accept =>
-      match stk with
-      | (_, v) :: _ => .inl (.ok v)
-      | [] => .inl (.err "accept on empty stack")
-    | .error => .inl (.reject s t)
-
-/-- Logarithmic-fuel iteration of `stepRedv`; mirrors `parseFixInline`. -/
-def parseFixRedv (f : FlatTable V) (stk : Stack V) (input : List (Nat × V)) :
-    Nat → Result V ⊕ (Stack V × List (Nat × V))
-  | 0 => stepRedv f stk input
-  | logN + 1 =>
-    match parseFixRedv f stk input logN with
-    | .inl result => .inl result
-    | .inr (stk', input') => parseFixRedv f stk' input' logN
-
-/-- Run the direct-stack engine. This is what the generated backend runs. -/
-def runRedv (f : FlatTable V) (input : List (Nat × V)) (logNSteps : Nat := 20) :
-    Result V :=
-  match parseFixRedv f [] input logNSteps with
-  | .inl result => result
-  | .inr _ => .timeout
-
-section RedvProofs
-variable (f : FlatTable V)
-  (hredv : ∀ (p : Nat) (stk : Stack V), f.redv p stk = popNsem f p stk)
-include hredv
-
-/-- Given the per-production correspondence `redv = popN+sem`, the direct-stack
-    reduce equals the inline reduce. `reduceInline` is definitionally `reduceRedv`
-    with `f.redv` replaced by `popNsem f`, so this is a rewrite by `hredv` then
-    case analysis on `popN`. -/
-theorem reduceRedv_eq (p : Nat) (stk : Stack V) :
-    reduceRedv f p stk = reduceInline f p stk := by
-  unfold reduceRedv reduceInline
-  rw [hredv p stk, popNsem]
-  cases popN (f.lenData.getD p 0) stk with
-  | none => rfl
-  | some r => obtain ⟨args, stk'⟩ := r; rfl
-
-/-- `stepRedv` equals `stepInline` when the per-production reduce agrees. -/
-theorem stepRedv_eq (stk : Stack V) (input : List (Nat × V)) :
-    stepRedv f stk input = stepInline f stk input := by
-  unfold stepRedv stepInline
-  simp only [reduceRedv_eq f hredv]
-
-/-- `parseFixRedv` equals `parseFixInline` under the same hypothesis. -/
-theorem parseFixRedv_eq (stk : Stack V) (input : List (Nat × V)) (logN : Nat) :
-    parseFixRedv f stk input logN = parseFixInline f stk input logN := by
-  induction logN generalizing stk input with
-  | zero => exact stepRedv_eq f hredv stk input
-  | succ n ih => simp only [parseFixRedv, parseFixInline, ih]
-
-/-- **The direct-stack engine equals the inline engine**, hence equals
-    `run f.toExecTable`. The generated backend runs `runRedv` and transfers every
-    refinement/soundness theorem through `runRedv_eq_runInline` ∘ `runInline_eq_run`. -/
-theorem runRedv_eq_runInline (input : List (Nat × V)) (logNSteps : Nat) :
-    runRedv f input logNSteps = runInline f input logNSteps := by
-  simp only [runRedv, runInline, parseFixRedv_eq f hredv]
-
-theorem runRedv_eq_run (input : List (Nat × V)) (logNSteps : Nat) :
-    runRedv f input logNSteps = run f.toExecTable input logNSteps := by
-  rw [runRedv_eq_runInline f hredv, runInline_eq_run]
-
-end RedvProofs
 
 end Runtime.Exec

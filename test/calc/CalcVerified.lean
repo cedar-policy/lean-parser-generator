@@ -921,8 +921,10 @@ theorem parserRunRefines (input : List grammarInst.Token) (logNSteps : Nat) :
       (CalcParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
   have hrun : CalcParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps
       = Runtime.Exec.run CalcParser.table (input.map executableRefinement.decode) logNSteps := by
-    simp only [CalcParser.run, CalcParser.table, executableRefinement, List.map_map,
-      Runtime.Exec.runRedv_eq_run CalcParser.flat CalcParser.redvMatches]
+    simp only [CalcParser.run]
+    rw [Runtime.Exec.runFast_eq_run CalcParser.stackOps CalcParser.flat CalcParser.fuse
+      CalcParser.termOf CalcParser.valOf CalcParser.stackLawful CalcParser.fuseOK]
+    simp only [CalcParser.table, executableRefinement, List.map_map]
     rfl
   rw [hrun]
   simpa [executableRefinement] using

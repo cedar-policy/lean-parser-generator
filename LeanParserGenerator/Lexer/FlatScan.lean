@@ -270,7 +270,8 @@ theorem flatScanStr_eq_scanStr {s : String} (f : FlatDFA) (dfa : DFA)
     (hstep : StepAgree f dfa) (hacc : AcceptAgree f dfa) (hrange : StatesInRange f dfa)
     (hstart : 0 < dfa.states.size) (start : s.Pos) :
     DFA.flatScanStr f start = DFA.scanStr dfa start := by
-  unfold DFA.flatScanStr DFA.scanStr
+  rw [DFA.flatScanStr_eq_go]
+  unfold DFA.scanStr
   exact flatScanStrGo_eq_scanStrGo f dfa hstep hacc hrange _ 0 start 0 none hstart
 
 end Lexer
