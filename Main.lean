@@ -32,6 +32,8 @@ rendering the requested output.
 public import LeanParserGenerator.Emit.Codegen
 public import LeanParserGenerator.Emit.CodegenVerified
 public import LeanParserGenerator.Emit.CodegenLexer
+public import LeanParserGenerator.Emit.CodegenRust
+public import LeanParserGenerator.Emit.Rust.Report
 public import LeanParserGenerator.Emit.CodegenLexerRoundtrip
 public import LeanParserGenerator.Emit.CodegenParserRoundtrip
 public import LeanParserGenerator.Frontend.File
@@ -44,6 +46,7 @@ open Frontend Emit Construct
 inductive Backend where
   | verified
   | executable
+  | rust
   deriving BEq
 
 inductive GrammarViewFormat where
@@ -111,6 +114,8 @@ def generateFile (backend : Backend) (ligPath outPath moduleName : String) : IO 
   | .ok (surface, prepared) =>
       let source ← if backend == .verified then
         generateVerifiedFrom surface prepared moduleName
+      else if backend == .rust then
+        pure (Emit.Rust.generateRustFrom surface prepared ligPath)
       else
         generateFrom surface prepared moduleName
       match source with
@@ -201,6 +206,18 @@ def generateInferred (ligPath : String) : IO UInt32 := do
           IO.eprintln s!"error: [{ligPath}] generation failed: {error}"
           return 1
       | .ok (verifiedSource, executableSource) =>
+          -- Rust, when `%option gen_rust <path>` names the file (relative to the `.lig`).
+          if let some rel := surface.options.genRust then
+            match Emit.Rust.generateRustFrom surface prepared ligPath with
+            | .error e =>
+                IO.eprintln s!"error: [{ligPath}] Rust generation failed: {e}"
+                return 1
+            | .ok rustSource =>
+                let rustPath := dir ++ rel
+                if let some parent := (System.FilePath.mk rustPath).parent then
+                  IO.FS.createDirAll parent
+                IO.FS.writeFile rustPath rustSource
+                IO.println s!"wrote {rustPath} (Rust)"
           -- Lexer first: it owns the token type the parser modules import.
           if genLexer then
             match Emit.generateLexerFrom surface lexerModule with
@@ -259,6 +276,22 @@ def printGrammarView (format : GrammarViewFormat) (ligPath : String) : IO UInt32
         | .markdown => view.renderMarkdown
       IO.println rendered
       conflictExitCode ligPath prepared.tables
+
+/-- Report which semantic actions the Rust backend could emit (docs/RUST_PARSER.md). The
+    resolver imports the header's modules, so run this under `lake env` with those
+    modules built. -/
+def rustReport (verbose : Bool) (ligPath : String) : IO UInt32 := do
+  match ← prepareFile ligPath with
+  | .error error =>
+      IO.eprintln s!"error: [{ligPath}] {error}"
+      return 1
+  | .ok (surface, _) =>
+      let mods := Emit.Rust.headerImports surface.header
+      let (res, note) ← match ← Emit.Rust.Resolver.ofImports mods with
+        | .ok r => pure (r, s!"environment of {mods}")
+        | .error e => pure (Emit.Rust.Resolver.empty, s!"none (import of {mods} failed: {e})")
+      IO.print (Emit.Rust.report surface res note verbose)
+      return 0
 
 /-- Generate only the lexer module from a `.lig` `%lexer` block. -/
 def generateLexerOnly (ligPath lexerOut lexerModule : String) : IO UInt32 := do
@@ -338,13 +371,15 @@ private def usage : IO UInt32 := do
   IO.eprintln "  leanparsergenerator --lexer <input.lig> <lexer-output.lean> [LexerModule]"
   IO.eprintln "  leanparsergenerator --roundtrip <input.lig> <roundtrip-output.lean> <lexer-import> [RoundtripModule]"
   IO.eprintln "  leanparsergenerator --roundtrip-parser <input.lig> <roundtrip-output.lean> <lexer-import> <parser-import> <unparse-import> [RoundtripModule]"
-  IO.eprintln "  leanparsergenerator --backend verified|executable <input.lig> <output.lean> [ModuleName]"
+  IO.eprintln "  leanparsergenerator --backend verified|executable|rust <input.lig> <output.lean> [ModuleName]"
   IO.eprintln "  leanparsergenerator --print-grammar bnf|markdown <input.lig>"
+  IO.eprintln "  leanparsergenerator --rust-report [-v] <input.lig>   (which actions the Rust backend can emit)"
   return 1
 
 private def parseBackend : String → Option Backend
   | "verified" => some .verified
   | "executable" => some .executable
+  | "rust" => some .rust
   | _ => none
 
 def main (args : List String) : IO UInt32 := do
@@ -353,6 +388,8 @@ def main (args : List String) : IO UInt32 := do
       match parseGrammarViewFormat formatName with
       | some format => printGrammarView format lig
       | none => usage
+  | ["--rust-report", lig] => rustReport false lig
+  | ["--rust-report", "-v", lig] => rustReport true lig
   | "--lexer" :: rest =>
       match rest with
       | [lig, lexerOut] => generateLexerOnly lig lexerOut (moduleOfPath lexerOut)
