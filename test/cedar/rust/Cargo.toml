@@ -6,6 +6,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+lpg_kernel = { path = "../../../rust/lpg-kernel" }
 
 [profile.release]
 opt-level = 3

@@ -155,7 +155,9 @@ def regenSpec (dir : System.FilePath) (exeFile : System.FilePath)
       if outMtime < ligMtime || outMtime < exeMtime then
         regenerate := true
   if regenerate then
-    let args := spec.explicitArgs.getD #[spec.lig]
+    -- The proof packages of `%option gen_rust_verif` need Charon and Aeneas; the build does
+    -- not regenerate them (run `leanparsergenerator <grammar.lig>` for that).
+    let args := spec.explicitArgs.getD #["--skip-rust-verif", spec.lig]
     let output ← IO.Process.output { cmd := exeFile.toString, args := args, cwd := dir }
     if output.exitCode != 0 && output.exitCode != 2 then
       error s!"leanparsergenerator failed on {spec.lig}:\n{output.stderr}"

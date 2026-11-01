@@ -16,7 +16,7 @@
 //! `test/cedar/CedarBench.lean`: one "policy" is one file.
 //! `BENCH_ITERS` sets the iteration count (default 2000).
 
-use cedar_rust_parser::generated::{self, Spanned, Tok};
+use cedar_rust_parser::generated::{self, Token};
 use cedar_rust_parser::Parser;
 use std::hint::black_box;
 use std::time::Instant;
@@ -30,7 +30,7 @@ fn main() {
     println!("corpus: {} policies, {} bytes", sources.len(), total_bytes);
 
     let mut p = Parser::new();
-    let mut tk: Vec<Spanned<Tok>> = Vec::new();
+    let mut tk: Vec<Token> = Vec::new();
     let ok = sources.iter().filter(|s| p.parse(s, &mut tk).is_ok()).count();
     println!("parsed OK: {}/{}", ok, sources.len());
     let iters: usize = std::env::var("BENCH_ITERS").ok().and_then(|v| v.parse().ok()).unwrap_or(2000);
@@ -43,7 +43,7 @@ fn main() {
 
     // `BENCH_LEX_ONLY=1`: only the lexer, for profiling.
     if std::env::var("BENCH_LEX_ONLY").is_ok() {
-        let mut toks: Vec<Spanned<Tok>> = Vec::new();
+        let mut toks: Vec<Token> = Vec::new();
         let t = Instant::now();
         let mut acc = 0usize;
         for _ in 0..iters {
@@ -82,7 +82,7 @@ fn main() {
     report("lex+parse, fresh buffers", t.elapsed().as_nanos() as f64, acc);
 
     // lex only
-    let mut toks: Vec<Spanned<Tok>> = Vec::new();
+    let mut toks: Vec<Token> = Vec::new();
     let t = Instant::now();
     let mut acc = 0usize;
     for _ in 0..iters {
@@ -95,7 +95,7 @@ fn main() {
     report("lex only", t.elapsed().as_nanos() as f64, acc);
 
     // parse only, from pre-lexed tokens
-    let lexed: Vec<Vec<Spanned<Tok>>> = sources
+    let lexed: Vec<Vec<Token>> = sources
         .iter()
         .map(|s| {
             let mut v = Vec::new();
@@ -121,7 +121,7 @@ fn main() {
         for s in &sources {
             toks.clear();
             if generated::tokenize(black_box(s), &mut toks).is_ok() {
-                if let Ok(policies) = generated::parse_values(&toks, &mut stacks) {
+                if let Ok(policies) = generated::parse_values(s, &toks, &mut stacks) {
                     acc += policies.policies.len();
                 }
             }
@@ -132,8 +132,8 @@ fn main() {
     let t = Instant::now();
     let mut acc = 0usize;
     for _ in 0..iters {
-        for ts in &lexed {
-            if let Ok(policies) = black_box(generated::parse_values(black_box(ts), &mut stacks)) {
+        for (s, ts) in sources.iter().zip(&lexed) {
+            if let Ok(policies) = black_box(generated::parse_values(s, black_box(ts), &mut stacks)) {
                 acc += policies.policies.len();
             }
         }

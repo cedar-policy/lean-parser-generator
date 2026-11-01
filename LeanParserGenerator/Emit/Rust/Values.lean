@@ -148,10 +148,15 @@ def planValues (s : Surface) : Except String ValuePlan := do
 
 /-- The Rust text of the value stacks and of `parse_values`. `tokLt` is the lifetime
     argument of `Tok` (`"<'a>"` or `""`). -/
-def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) : Except String String := do
+def renderValueParser (s : Surface) (plan : ValuePlan) (hasLexer : Bool) (tokLt : String) :
+    Except String String := do
   let lt := if tokLt.isEmpty && !(plan.variants.any (·.contains '\'')) then "" else "<'a>"
   -- With `%option rust_ctx T`, `parse_values` also takes `ctx: &'a T`, visible in the actions.
   let fnLt := if lt.isEmpty && s.options.rustCtx.isSome then "<'a>" else lt
+  -- With a lexer, `parse_values` also reads the source, to rebuild the value of each token
+  -- from the text of its span.
+  let srcParam := if !hasLexer then ""
+    else if fnLt.isEmpty then "\n    src: &str," else "\n    src: &'a str,"
   let ctxParam := match s.options.rustCtx with
     | some t => s!"\n    ctx: &'a {t},"
     | none => ""
@@ -220,20 +225,21 @@ def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) 
     "    }",
     "}",
     "",
-    "/// Push the value a shifted token carries onto the stack of its type.",
-    s!"#[inline(always)]\nfn push_payload{lt}(s: &mut Stacks{lt}, t: &{tokName}{tokLt}) \{",
-    "    match t {",
-    "\n".intercalate tokArms,
-    "        #[allow(unreachable_patterns)]",
-    "        _ => {}",
-    "    }",
-    "}",
+    (if hasLexer then String.intercalate "\n" [
+      "/// Push the value a shifted token carries onto the stack of its type.",
+      s!"#[inline(always)]\nfn push_payload{lt}(s: &mut Stacks{lt}, t: &Tok{tokLt}) \{",
+      "    match t {",
+      "\n".intercalate tokArms,
+      "        #[allow(unreachable_patterns)]",
+      "        _ => {}",
+      "    }",
+      "}" ] else ""),
     "",
     "/// Parse `tokens` and return the value of the start symbol, computed by the Rust actions",
     "/// of the grammar. `stacks` is cleared first.",
     "#[allow(unused_variables, unused_mut, unused_parens, non_snake_case, clippy::all)]",
-    s!"pub fn parse_values{fnLt}(",
-    s!"    tokens: &[Spanned<{tokName}{tokLt}>],",
+    s!"pub fn parse_values{fnLt}({srcParam}",
+    "    tokens: &[Token],",
     s!"    stacks: &mut Stacks{lt},{ctxParam}",
     s!") -> Result<{plan.startTy}, ParseError> \{",
     "    stacks.clear();",
@@ -248,18 +254,25 @@ def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) 
     "            dr",
     "        } else {",
     "            let (term, tstart, tend) = if ti < tokens.len() {",
-    "                (tokens[ti].tok.term(), tokens[ti].start, tokens[ti].end)",
+    "                (tokens[ti].term, tokens[ti].start, tokens[ti].end)",
     "            } else {",
     "                (EOF, prev_end, prev_end)",
     "            };",
-    "            let a = ACTION[state * NUM_TERMINALS + term as usize] as usize;",
+    "            if term as usize >= NUM_TERMINALS {",
+    "                return Err(ParseError { token: ti, state, term });",
+    "            }",
+    "            let a = ACTION[state][term as usize] as usize;",
     "            if a == 0 {",
     "                return Err(ParseError { token: ti, state, term });",
     "            }",
     "            if a & 1 == 1 {",
-    "                if ti < tokens.len() {",
-    "                    push_payload(stacks, &tokens[ti].tok);",
-    "                }",
+    (if hasLexer then String.intercalate "\n" [
+      "                if ti < tokens.len() {",
+      "                    let t = &tokens[ti];",
+      "                    if let Some(tok) = token_value(t.rule, &src[t.start as usize..t.end as usize]) {",
+      "                        push_payload(stacks, &tok);",
+      "                    }",
+      "                }" ] else ""),
     "                stacks.entries.push(ValueEntry { state: (a >> 1) as u16, start: tstart, end: tend });",
     "                state = a >> 1;",
     "                prev_end = tend;",
@@ -284,7 +297,7 @@ def renderValueParser (s : Surface) (plan : ValuePlan) (tokName tokLt : String) 
     "        }",
     "        __stack.truncate(__base);",
     "        let __top = __stack[__base - 1].state as usize;",
-    "        let __g = GOTO[__top * NUM_NONTERMINALS + LHS[prod] as usize] as usize;",
+    "        let __g = GOTO[__top][LHS[prod] as usize] as usize;",
     "        if __g == NONE {",
     "            return Err(ParseError { token: ti, state, term: u16::MAX });",
     "        }",

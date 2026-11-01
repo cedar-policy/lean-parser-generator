@@ -60,16 +60,26 @@ Where the files of a grammar are named:
 | the generated Rust file | `%option gen_rust` |
 | the Rust functions that lexer actions call | `rust f => crate::module::f` lines in the `%lexer` block; the file is the handwritten Rust module of that path |
 
+## Proving it
+
+`%option gen_rust_verif <dir>` also writes a Lean package that proves the generated lexer and
+parser equal to the Lean ones; it needs Charon and Aeneas. See docs/RUST_VERIFICATION.md.
+
 ## What the generated file contains
 
 All items are in the one file, which you include as a module (`mod generated;` or `pub
-mod generated;`). It has no dependencies beyond `std`.
+mod generated;`). It depends on the crate `lpg_kernel` (`rust/lpg-kernel` in this
+repository), which holds the loops that are the same for every grammar:
+
+    [dependencies]
+    lpg_kernel = { path = "path/to/lpg-kernel" }
 
 Common items:
 
 - `EOF: u16`, the terminal index of the end-of-input token.
-- `trait Terminal { fn term(&self) -> u16; }`, the terminal index of a token.
-- `struct Spanned<T> { tok: T, start: u32, end: u32 }`, a token with its byte span.
+- `struct Token { rule: u16, term: u16, start: u32, end: u32 }`, a token: the lexer rule
+  that matched, its terminal index and its byte span. It has no value (see `token_value`).
+  Re-exported from `lpg_kernel`, with `Node`, `Entry`, `ParseError` and `PROD_FLAG`.
 - `mod term`, one `u16` constant per `%token`, named like the token.
 - `NUM_TERMINALS`, `NUM_NONTERMINALS`, `NUM_PRODUCTIONS`, `NUM_STATES`.
 - `term_name(t: u16)`, `nonterm_name(n: usize)`, `prod_lhs(p: usize)`, `prod_len(p:
@@ -80,21 +90,26 @@ From the lexer, if the grammar has a `%lexer` block:
 - `enum Tok<'a>`, one variant per `%token`, with a payload for the tokens that carry a
   value. A `String` payload is a `&'a str` into the source. The lifetime parameter is
   there only if some token has such a payload.
-- `fn tokenize<'a>(src: &'a str, out: &mut Vec<Spanned<Tok<'a>>>) -> Result<(), LexError>`.
+- `fn tokenize(src: &str, out: &mut Vec<Token>) -> Result<(), LexError>`.
+- `fn token_value(rule: u16, text: &str) -> Option<Tok>`: the `Tok` (with its value) that
+  the lexer action of `rule` builds from the lexeme `text`, the source text of the token's
+  span. `EOF_RULE` is the `rule` of the end-of-input token.
+- `fn lex(src: &[u8], out: &mut Vec<Token>) -> Result<(), lpg_kernel::LexFail>`, for a lexer
+  with one mode: the loop `tokenize` runs, `lpg_kernel::lex` on this grammar's tables, before
+  the terminals of `g s` rules are filled in. Call `tokenize`.
 - `struct LexError { pos, byte_pos, ch, reason }` and `enum LexErrorReason`.
 - `mod lexrt`, the Rust versions of the library functions that lexer actions may call.
 
 From the parser:
 
-- `fn parse<T: Terminal>(tokens: &[Spanned<T>], stack: &mut Vec<Entry>, nodes: &mut
-  Vec<Node>) -> Result<(), ParseError>`.
+- `fn parse(tokens: &[Token], stack: &mut Vec<Entry>, nodes: &mut Vec<Node>) ->
+  Result<(), ParseError>`: `lpg_kernel::parse` applied to the grammar's tables.
 - `struct Node { kind: u16, start: u32, end: u32 }`, `const PROD_FLAG: u16 = 0x8000`.
 - `struct Entry`, the parse stack cell. It is public so the caller can own the buffer.
 - `struct ParseError { token: usize, state: usize, term: u16 }`.
 
-For a grammar without a `%lexer` block there is no `Tok`, `tokenize` or `lexrt`, and
-the file has `struct Kind(pub u16)`, a token that is only a terminal index, which
-implements `Terminal`.
+For a grammar without a `%lexer` block there is no `Tok`, `tokenize`, `token_value` or
+`lexrt`; you build the `Token`s yourself (`rule` is not read by the parser).
 
 ## Calling it
 
@@ -103,7 +118,7 @@ A crate that uses the generated file, from `test/cedar/rust/src/lib.rs`:
     pub mod generated;
     pub mod hooks;     // the handwritten functions named in the %lexer block
 
-    use generated::{Entry, LexError, Node, ParseError, Spanned, Tok};
+    use generated::{Entry, LexError, Node, ParseError, Token};
 
     #[derive(Default)]
     pub struct Parser {
@@ -112,11 +127,7 @@ A crate that uses the generated file, from `test/cedar/rust/src/lib.rs`:
     }
 
     impl Parser {
-        pub fn parse<'a>(
-            &mut self,
-            src: &'a str,
-            tokens: &mut Vec<Spanned<Tok<'a>>>,
-        ) -> Result<(), Error> {
+        pub fn parse(&mut self, src: &str, tokens: &mut Vec<Token>) -> Result<(), Error> {
             tokens.clear();
             generated::tokenize(src, tokens).map_err(Error::Lex)?;
             generated::parse(tokens, &mut self.stack, &mut self.nodes).map_err(Error::Parse)
@@ -256,7 +267,7 @@ Rules:
   of a macro element as such a value, as in `args=separated_list(COMMA, expr)` above, whose
   Rust type is `VecDeque<Expr>`.
 - A grammar without a `%lexer` block can have Rust actions only if no token has a payload
-  (the tokens are `Kind`, which is only a terminal index).
+  (`parse_values` then takes no source text, since there is nothing to rebuild a value from).
 - A `}` in a Rust string or comment must be balanced like the Lean actions' braces, since the
   frontend finds the end of the action by counting braces.
 
@@ -265,9 +276,10 @@ Calling it:
     let mut toks = Vec::new();
     tokenize(&src, &mut toks)?;
     let mut stacks = Stacks::new();                 // keep it between calls
-    let program = parse_values(&toks, &mut stacks)?;
+    let program = parse_values(&src, &toks, &mut stacks)?;
 
-`parse_values(tokens, stacks)` returns `Result<T, ParseError>`, where `T` is the Rust type of
+`parse_values(src, tokens, stacks)` (with a `%lexer` block; the source text is what the value
+of each shifted token is rebuilt from) returns `Result<T, ParseError>`, where `T` is the Rust type of
 the start rule. `Stacks` holds the buffers (the entry stack and one `Vec` per distinct
 Rust type); `parse_values` clears them first. The `ParseError` is the same type as `parse`'s. The two functions are generated from
 separate templates of the same loop and read the same tables, so they accept the same token
@@ -426,7 +438,7 @@ takes the Rust type of the declared Lean type:
 | `{ x : T // p }` | the Rust type of `T` (the predicate is dropped) |
 
 Any other type is an error naming the type. `Tok` derives `Clone`, `Debug`, `PartialEq`
-and `Eq`, and implements `Terminal`.
+and `Eq`, and has a method `term(&self) -> u16`.
 
 `Nat` and `Int` are fixed width. A numeral beyond the range is not saturated and not
 wrapped: the built-in functions return `None` and the lexer reports `Unrepresentable`.
@@ -438,18 +450,18 @@ lexer never returns a wrong value. The Cedar grammar assumes its numerals fit `u
 ## Grammars without a lexer
 
 C99's fixture has no `%lexer` block, so the file has only the parser. Supply tokens
-yourself, as `Spanned<Kind>`, using the constants in `mod term`:
+yourself, as `Token`s, using the constants in `mod term` (`rule` is not read):
 
-    use generated::{parse, term, Kind, Spanned, EOF};
+    use generated::{parse, term, Token, EOF};
 
     let toks = vec![
-        Spanned { tok: Kind(term::INT), start: 0, end: 3 },
-        Spanned { tok: Kind(term::IDENTIFIER), start: 4, end: 5 },
-        Spanned { tok: Kind(term::SEMICOLON), start: 5, end: 6 },
-        Spanned { tok: Kind(EOF), start: 6, end: 6 },
+        Token { rule: 0, term: term::INT, start: 0, end: 3 },
+        Token { rule: 0, term: term::IDENTIFIER, start: 4, end: 5 },
+        Token { rule: 0, term: term::SEMICOLON, start: 5, end: 6 },
+        Token { rule: 0, term: EOF, start: 6, end: 6 },
     ];
 
-or implement `Terminal` for your own token type and parse a `&[Spanned<YourTok>]`.
+A token whose terminal is out of range is a `ParseError`, not a panic.
 
 ## Performance
 

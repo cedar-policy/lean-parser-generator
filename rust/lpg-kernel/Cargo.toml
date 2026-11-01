@@ -1,0 +1,9 @@
+[package]
+name = "lpg_kernel"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "The table-driven kernels of the Rust backend: the same code for every grammar, verified against the Lean specification (rust/verif/)."
+
+[dependencies]

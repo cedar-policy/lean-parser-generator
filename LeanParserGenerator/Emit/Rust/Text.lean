@@ -48,6 +48,21 @@ def packLines (elems : Array String) (indent : String := "    ") (width : Nat :=
 def staticArr (name ty : String) (elems : Array String) : String :=
   s!"#[rustfmt::skip]\nstatic {name}: [{ty}; {elems.size}] = [\n{packLines elems}\n];"
 
+/-- A table of `rows.size` rows of `width` elements, as one `const` per row and a
+    `static NAME: [[ty; width]; rows]` of them. The memory layout is that of the flat
+    array; the rows are separate constants so that the Lean translation of the table
+    (Aeneas) elaborates one short literal at a time (rust/verif/). -/
+def staticRows (name ty : String) (width : Nat) (rows : Array (Array String)) : String :=
+  Id.run do
+    let mut consts : Array String := #[]
+    let mut names : Array String := #[]
+    for h : i in [0:rows.size] do
+      consts := consts.push
+        s!"#[rustfmt::skip]\nconst {name}_{i}: [{ty}; {width}] = [\n{packLines rows[i]}\n];"
+      names := names.push s!"{name}_{i}"
+    return "\n".intercalate consts.toList ++
+      s!"\n#[rustfmt::skip]\nstatic {name}: [[{ty}; {width}]; {rows.size}] = [\n{packLines names}\n];"
+
 /-- The narrowest unsigned Rust type holding values up to `maxVal`. -/
 def uintTy (maxVal : Nat) : String :=
   if maxVal < 256 then "u8" else if maxVal < 65536 then "u16" else "u32"

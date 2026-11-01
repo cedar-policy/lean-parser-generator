@@ -33,6 +33,7 @@ public import LeanParserGenerator.Emit.Codegen
 public import LeanParserGenerator.Emit.CodegenVerified
 public import LeanParserGenerator.Emit.CodegenLexer
 public import LeanParserGenerator.Emit.CodegenRust
+public import LeanParserGenerator.Emit.Rust.BridgeIO
 public import LeanParserGenerator.Emit.Rust.Report
 public import LeanParserGenerator.Emit.CodegenLexerRoundtrip
 public import LeanParserGenerator.Emit.CodegenParserRoundtrip
@@ -181,7 +182,7 @@ grammar has no `%lexer` block; skipping {lexPath}"
     the input; `%option module_prefix` supplies the dotted import prefix; a `%lexer`
     block adds the lexer module, and `%option roundtrip_lexer` adds the roundtrip
     module. This is the form that takes only a `.lig` argument. -/
-def generateInferred (ligPath : String) : IO UInt32 := do
+def generateInferred (ligPath : String) (skipRustVerif : Bool := false) : IO UInt32 := do
   match ← prepareFile ligPath with
   | .error error =>
       IO.eprintln s!"error: [{ligPath}] {error}"
@@ -259,6 +260,28 @@ def generateInferred (ligPath : String) : IO UInt32 := do
                 let prtPath := dir ++ prtModule ++ ".lean"
                 IO.FS.writeFile prtPath prtSource
                 IO.println s!"wrote {prtPath} (module {prtModule})"
+          -- The proof package of the Rust code, via `%option gen_rust_verif <dir>`.
+          if let some rel := surface.options.genRustVerif then
+            if surface.options.genRust.isNone then
+              IO.eprintln s!"error: [{ligPath}] `%option gen_rust_verif` needs `%option gen_rust`"
+              return 1
+            else if skipRustVerif then
+              IO.println s!"skipped {dir ++ rel} (--skip-rust-verif)"
+            else if let .error e := Emit.RustBridge.coverage surface then
+              if surface.options.rustVerifOptional then
+                IO.eprintln s!"warning: [{ligPath}] no Rust proof package: {e}"
+              else
+                IO.eprintln s!"error: [{ligPath}] {e} (`%option rust_verif_optional` skips the \
+proof package instead)"
+                return 1
+            else
+              match ← Emit.RustBridge.writeBridge surface prepared dir base executableImport
+                  lexerImport with
+              | .error e =>
+                  IO.eprintln s!"error: [{ligPath}] Rust proof package: {e}"
+                  return 1
+              | .ok files =>
+                  for f in files do IO.println s!"wrote {f}"
           conflictExitCode ligPath prepared.tables
 
 /-- Print an inspectable view built from the same augmented grammar data emitted
@@ -374,6 +397,8 @@ private def usage : IO UInt32 := do
   IO.eprintln "  leanparsergenerator --backend verified|executable|rust <input.lig> <output.lean> [ModuleName]"
   IO.eprintln "  leanparsergenerator --print-grammar bnf|markdown <input.lig>"
   IO.eprintln "  leanparsergenerator --rust-report [-v] <input.lig>   (which actions the Rust backend can emit)"
+  IO.eprintln "  leanparsergenerator --skip-rust-verif <input.lig>   (as <input.lig>, without the gen_rust_verif package)"
+  IO.eprintln "  leanparsergenerator --rust-extract-kernel <lpg-kernel dir> <rust/verif/Kernel dir>"
   return 1
 
 private def parseBackend : String → Option Backend
@@ -417,6 +442,15 @@ def main (args : List String) : IO UInt32 := do
   | [lig] =>
       -- Only a `.lig`: infer all outputs from the `.lig` path and `%option`s.
       generateInferred lig
+  | ["--skip-rust-verif", lig] => generateInferred lig (skipRustVerif := true)
+  | ["--rust-extract-kernel", kernel, verifKernel] =>
+      match ← Emit.RustBridge.extractKernel kernel verifKernel with
+      | .ok () =>
+          IO.println s!"wrote {verifKernel}/Types.lean and {verifKernel}/Funs.lean"
+          return 0
+      | .error e =>
+          IO.eprintln s!"error: {e}"
+          return 1
   | [lig, verifiedOut, executableOut] =>
       generateBothFiles lig verifiedOut executableOut
         (moduleOfPath verifiedOut) (moduleOfPath executableOut)

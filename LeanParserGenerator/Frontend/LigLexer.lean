@@ -231,9 +231,10 @@ partial def tokenize (input : String) : Except String (List LigTok) := do
         else
           toks := toks.push (.ACTION interior.trimAscii.toString); cur := c1
     else if (match toks.toList.reverse with
-        | .IDENT n :: .KW_OPTION :: _ => n == "gen_rust" || n == "rust_ctx" || n == "rust_list"
+        | .IDENT n :: .KW_OPTION :: _ =>
+          n == "gen_rust" || n == "gen_rust_verif" || n == "rust_ctx" || n == "rust_list"
         | _ => false) then
-      -- The value of `%option gen_rust` (a file path), `rust_ctx` and `rust_list` (Rust
+      -- The value of `%option gen_rust` and `gen_rust_verif` (paths), `rust_ctx` and `rust_list` (Rust
       -- paths) is a run of non-whitespace.
       let (path, c1) := takeWhile cur (fun c => !(c == ' ' || c == '\t' || c == '\n' || c == '\r'))
       toks := toks.push (.IDENT path); cur := c1
@@ -309,6 +310,9 @@ def assembleSurface (directives : Array Directive) (rules : Array Rule) :
       | "module_prefix", none => throw "`%option module_prefix` needs a module path (e.g. `%option module_prefix calc`)"
       | "gen_rust", some v => options := { options with genRust := some v }
       | "gen_rust", none => throw "`%option gen_rust` needs a file path (e.g. `%option gen_rust rust/src/generated.rs`)"
+      | "gen_rust_verif", some v => options := { options with genRustVerif := some v }
+      | "gen_rust_verif", none => throw "`%option gen_rust_verif` needs a directory (e.g. `%option gen_rust_verif rust_bridge`)"
+      | "rust_verif_optional", _ => options := { options with rustVerifOptional := true }
       | "rust_ctx", some v => options := { options with rustCtx := some v }
       | "rust_ctx", none => throw "`%option rust_ctx` needs a Rust type (e.g. `%option rust_ctx crate::ast::Arena`)"
       | "rust_list", some v => options := { options with rustList := some v }

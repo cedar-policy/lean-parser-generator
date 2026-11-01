@@ -2,14 +2,16 @@
 
 `leanparsergenerator --backend rust <grammar.lig> <out.rs>` writes one Rust file with a
 lexer and an LR(1) parser. A grammar without a `%lexer` block (the C99 fixture) gets
-only the parser and the terminal constants; the caller supplies the tokens by
-implementing `Terminal` (`Kind` is a ready-made token that is only a terminal index).
+only the parser and the terminal constants; the caller supplies the tokens as
+`lpg_kernel::Token`s (a rule, a terminal and a span, no value).
 The emitters are `LeanParserGenerator/Emit/CodegenRust.lean` (parser and assembly)
 and `Emit/Rust/Lexer.lean` (lexer). It reuses the Lean side's table
 construction: the Pager `Tables` for the parser and `DFA.build?WithVecs`,
 `DFA.flatOfDFA` and `ByteDFA.byteOfFlat` for the lexer. Nothing is recomputed in Rust.
 
-This is a prototype. It has no proofs, and verification is not designed yet.
+This is a prototype. The loops that are the same for every grammar live in a Rust crate,
+`rust/lpg-kernel`, that the generated file calls with its tables; `rust/verif/` proves that crate
+equal to the Lean specification (docs/RUST_VERIFICATION.md).
 
 ## Where the files are
 
@@ -35,12 +37,12 @@ functions that lexer actions call are named in the `%lexer` block with
 
 Lexer. See "Lexers" below.
 
-Parser. `ACTION[state * NUM_TERMINALS + t]` is 0 for error, `(target << 1) | 1` for
+Parser. `ACTION[state][t]` is 0 for error, `(target << 1) | 1` for
 shift and `(prod + 1) << 1` for reduce. `GOTO`, `DEFAULT_REDUCE`, `LHS` and `RHS_LEN`
 are the Lean tables. The loop follows `Runtime.Exec.step`: use the default reduction
 if the state has one, otherwise look up the action. A reduction with no goto is
-accepted if it is the augmented production, and an internal error otherwise. The
-`%eof` token is the augmented `$`, as in `Emit.emitDecoder`.
+accepted, as in `Exec.reduce`; with the generator's tables only the augmented production
+has none. The `%eof` token is the augmented `$`, as in `Emit.emitDecoder`.
 
 `parse` fills a postorder `Vec<Node>`: one node per shifted token and one per reduction,
 each with a source span. The last node is the augmented start production. This is a
@@ -87,18 +89,31 @@ is pushed when the token is shifted. `x_span`, for a binder `x`, is a `Span { st
 
 Tables. The byte DFA from `ByteDFA.byteOfFlat` has 256 columns per state. The emitter
 merges bytes whose columns agree in every state into classes (Cedar: 53 classes, 71
-states) and writes, per mode, `M<i>_CLASS`, `M<i>_TRANS` and `M<i>_ACCEPT`. The states
-are renumbered with the accepting ones last; a state is the offset `(k + 1) * classes` of
-its row, row 0 is the dead row, and `trans[row + class]` is the offset of the next row
-(0 for dead). So a step is one load and an accepting row is `row >= accept_from`;
-`accept[row]` is the rule plus one. Before writing the tables the generator checks
-them against the byte DFA for every state and byte (D16). `tokenize(&str, &mut Vec<Spanned<Tok>>)` is the
-usual longest-match loop: run until the dead state, remember the last accept, fail if
-no rule matched or the match is empty. A state that steps to itself starts a separate
-inner loop over the run (identifier characters, spaces): its loads do not depend on
-each other, which a loop that carries the state does. It appends the `%eof` token last. Modes work as
-in `Lexer.tokenizeByteAux`: a stack of modes starting with the first, `enter m` pushes,
-`leave` pops, and end of input is an error unless exactly one mode is on the stack.
+states). The states are renumbered with the accepting ones last, and row 0 is the dead
+state. Before writing the tables the generator checks them against the byte DFA for every
+state and byte (D16).
+
+A lexer with one mode (every grammar so far) is `lpg_kernel::lex`, with the tables
+`LEX_CLASS` (byte to class), `LEX_TRANS[state][class]` (the next state, 0 for dead, one
+constant per row as for the parser), `LEX_ACCEPT[state]` (the rule plus one),
+`RULE_TERM[rule]` (the terminal, `TERM_SKIP` for a rule that emits nothing, `TERM_HOOK`
+for one whose terminal a function computes), `LEX_START` and `LEX_ACCEPT_FROM` (the
+accepting states are those from it on). The generated `lex` calls the kernel with them
+(D29). `tokenize(&str, &mut Vec<Token>)` calls `lex`, then makes one pass over the tokens
+for the rules with a function: a `g s` rule gets its terminal from `g`, and a `Tok.NAME
+(f s)` rule fails with `Unrepresentable` where `f` returns `None`. The first error in the
+source is reported, as when the functions ran inside the loop. The loop is the usual
+longest match: run until the dead state, remember the last accept, fail if no rule matched
+or the match is empty. A state that steps to itself starts a separate inner loop over the
+run (identifier characters, spaces): its loads do not depend on each other, which a loop
+that carries the state does. It appends the `%eof` token last. An input longer than
+`u32::MAX` bytes is an error (`TooLong`): the spans would not fit.
+
+A lexer with several modes keeps its own loop in the generated file, with per-mode tables
+`M<i>_CLASS`, `M<i>_TRANS` and `M<i>_ACCEPT` in which a state is the offset
+`(k + 1) * classes` of its row. Modes work as in `Lexer.tokenizeByteAux`: a stack of modes
+starting with the first, `enter m` pushes, `leave` pops, and end of input is an error
+unless exactly one mode is on the stack. This loop is not proved.
 
 Actions. The Rust backend accepts a lexer rule only if its action has one of five
 forms, with `s` the `as` binder:
@@ -131,7 +146,10 @@ actions.
 Token type. `Tok` has one variant per `%token`, with the Rust type of the declared
 Lean type as payload: `String` is `&'a str`, `Nat` is `u64`, `Int` is `i64`, `Bool` is
 `bool`, `Char` is `char`, and a subtype is its base type. Any other type is an error.
-`Tok` implements `Terminal`, which gives the parser the terminal index.
+A lexed token is a `Token { rule, term, start, end }`: it carries no value, so it has no
+lifetime and is 12 bytes. `rule` numbers the lexer rules of all modes in order, and
+`token_value(rule, text)` rebuilds the `Tok` of a token from the source text of its span
+(`parse_values` does it for the tokens it shifts). `Tok::term()` is the terminal index.
 
 Numbers. `Nat` is `u64` and `Int` is `i64` (decision D7). A numeral beyond the range
 is not saturated: `lexrt::to_nat` and `lexrt::to_int` return `None`, so the Rust lexer
@@ -140,8 +158,8 @@ wrong value. In Cedar numerals are assumed to fit `u64`. `to_nat` also returns `
 on anything but decimal digits, where `String.toNat!` panics and gives 0.
 
 Errors. `LexError` has `pos`, a character offset as in Lean, `byte_pos`, `ch`, the
-offending character (none at end of input), and `reason`: `NoMatch`, `Unrepresentable`
-or `EndInMode`.
+offending character (none at end of input), and `reason`: `NoMatch`, `Unrepresentable`,
+`EndInMode` or `TooLong`.
 
 Differences from the Lean lexer that remain:
 - A numeral beyond `u64` (`i64` for `Int`) is a lexer error in Rust; Lean accepts it.
@@ -306,22 +324,21 @@ classifier or report does it today.
 | D11 | A structure instance must name exactly the structure's fields. | Implemented |
 | D12 | In a parser action a binder has the type declared for its symbol, `x_span` has type `Runtime.Span`, and in a lexer action the lexeme is a `String`. | Implemented |
 | D13 | A `String` token payload is a slice of the source, `&'a str`, and `Tok<'a>` has a lifetime parameter (only if some token has such a payload). Owned `String`s cost 1.4 µs of 6.0 on Cedar lexing in allocation and more in copying the larger token. | Implemented |
-| D16 | The lexer tables are a re-encoding of the byte DFA: states renumbered with the accepting ones last, a state is the offset of its row, a step is one load. The generator checks the re-encoding against the byte DFA before it writes it. Proving it is part of the Rust-to-Lean bridge. | Implemented |
 | D14 | A lexer action has one of five forms (`skip`, `Tok.T`, `Tok.T s`, `Tok.T (f s)`, `g s`); a Lean function used in one has a Rust counterpart, built in or declared with `rust f => path` in the `%lexer` block. | Implemented |
+| D15 | A numeral that does not fit `u64`/`i64`, or a string `toNat!` is not defined on, makes the Rust lexer fail (`Unrepresentable`) instead of saturating or returning 0. Rust counterparts of lexer functions return `Option`. | Implemented |
+| D16 | The lexer tables are a re-encoding of the byte DFA: states renumbered with the accepting ones last, a state is the offset of its row, a step is one load. The generator checks the re-encoding against the byte DFA before it writes it. Proving it is part of the Rust-to-Lean bridge. | Implemented |
 | D17 | A parser action has a Rust counterpart written by the grammar author, `!!rust{ … }` after the Lean action, pasted verbatim into the reduction. The Rust type of a rule is `!!rust{type}` after its Lean type. The generator does not parse, translate or check the Rust. The parse-tree correspondence is independent of the values. | Implemented |
 | D18 | Values live on one `Vec` per distinct Rust type; the production being reduced pops from the stacks of its right-hand side symbols. Rejected: one enum of all value types, which has the size of the largest AST node and was copied on every shift and reduction. With an AST whose nodes were up to 500 bytes, two thirds of the time went to `memmove`; per-type stacks and nodes of at most 64 bytes (larger fields behind a `Box`) cut the cost of building the AST per token by more than half. The trace parser, which builds nothing, is several times faster still. | Implemented |
 | D19 | Rust actions are all or nothing: every rule needs a type and every alternative an action, or none has any. | Implemented |
+| D20 | The `.lig` frontend reads `!!rust{…}` without a change to `lig.lig`: the bootstrap lexer keeps the Rust text inside the type or action token, and `assembleSurface` splits it off. The committed bootstrap parser is unchanged. | Implemented |
 | D21 | Macro-generated rules get Rust text from the expansion when the grammar has Rust actions: lists are `VecDeque<T>` (the expansion is right-recursive, so `push_front` keeps it O(1)), options `Option<T>`, `T` the Rust type of the element, the payload type for a token (`&'a str` for a `String`). A user who wants another representation writes the list rule by hand. | Implemented |
 | D22 | A reduction whose action is just the name of its only binder, with the symbol and the rule of the same Rust type, generates no code. | Implemented |
 | D23 | `%option rust_ctx T` adds `ctx: &'a T` to `parse_values`, visible in the Rust actions, and `%option rust_list P` makes the macro rules build `P::List<'a, T>` with `P::nil/one/cons(ctx, …)`. This lets the actions allocate the AST, lists included, in an arena. On a large grammar it halved the time of `parse_values`: the allocator was most of the cost, and the tree is freed at once. Rejected: an arena inside the generated code (the AST types are the user's), a thread-local arena (the lifetime of the values would be a lie). | Implemented |
 | D24 | With `rust_ctx`, `Stacks::recycle` empties the stacks and changes their lifetime (a `transmute` of empty vectors), so one set of buffers serves many arenas. It is the only `unsafe` in the generated parser. | Implemented |
-| D25 | The loops of `parse` and `parse_values` keep the top state in a local instead of reloading it from the stack after each push; `Terminal::term` is `#[inline(always)]`. Between 9% (trace) and 16% (values) of the parse time on a large grammar. | Implemented |
-| D20 | The `.lig` frontend reads `!!rust{…}` without a change to `lig.lig`: the bootstrap lexer keeps the Rust text inside the type or action token, and `assembleSurface` splits it off. The committed bootstrap parser is unchanged. | Implemented |
-| D15 | A numeral that does not fit `u64`/`i64`, or a string `toNat!` is not defined on, makes the Rust lexer fail (`Unrepresentable`) instead of saturating or returning 0. Rust counterparts of lexer functions return `Option`. | Implemented |
-
-## Not done
-
-- A check that a Rust action and its Lean action build the same thing.
-- A pull-based lexer (no token vector) and collapsing unit-production chains, which
-  dominate the 1600 nodes per Cedar file.
-- Verification.
+| D25 | The loops of `parse` and `parse_values` keep the top state in a local instead of reloading it from the stack after each push; `Tok::term` is `#[inline(always)]`. Between 9% (trace) and 16% (values) of the parse time on a large grammar. | Implemented |
+| D26 | The LR loop of `parse` is `lpg_kernel::parse`, the same for every grammar, with the tables as arguments; the generated `parse` is a call. | Implemented |
+| D27 | A lexed token is `Token { rule, term, start, end }`, with no value. `token_value(rule, text)` rebuilds the `Tok` from the text of the span, and `parse_values` calls it for the tokens it shifts (a hook that picks the terminal runs again there). Rejected: `Spanned<Tok>`, whose lifetime and payload Aeneas cannot translate in `&mut Vec`. Tokens are 12 bytes instead of 32 and the Cedar timings did not change. | Implemented |
+| D28 | Tables are 2D with one constant per row, all `u16`. Same layout as the flat arrays. | Implemented |
+| D29 | A one-mode lexer is `lpg_kernel::lex` with the tables as arguments. A state of `LEX_TRANS` is its row number, not the offset of its row (D16), because Aeneas elaborates one array literal in time superlinear in its length (4000 entries: 140 s), so the table has one constant per row. The Cedar lexer did not get slower (3.0 to 3.3 µs per file, before and after). The functions of the rules run in a pass after the loop, so that the kernel has no closure. | Implemented |
+| D30 | The kernel's `parse` takes a step budget `fuel` (the generated parser passes `lpg_kernel::FUEL`, 2^62) and fails with `TERM_OUT_OF_FUEL` when it runs out, so that it is a total function without a termination proof from the tables. A reduction with no goto accepts whatever the production, as `Exec.reduce` does, so that the kernel computes `Exec` on every table. | Implemented |
+| D31 | `%option gen_rust_verif <dir>` makes the generator write a grammar's proof package: it runs Charon and Aeneas on the crate (and on its kernel, which must translate to the proved `rust/verif/Kernel/`), and writes the certificate and the proofs from its own tables. The package requires `verif` and shares its packages. `lake build parsers` passes `--skip-rust-verif`, so that the build does not need the tools. Rejected: shell scripts around the tools, and parsing the generated Rust back (the generator has the tables). | Implemented |

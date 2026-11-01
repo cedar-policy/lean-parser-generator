@@ -208,7 +208,7 @@ def prelude : String := String.intercalate "\n" [
   "    }",
   "}" ]
 
-/-- Render the `Tok` enum and its `Terminal` instance. -/
+/-- Render the `Tok` enum (the tokens with their values) and its `term`. -/
 def renderTok (s : Surface) (augEof : Nat) : Except String (String × String) := do
   let mut variants : Array String := #[]
   let mut arms : Array String := #[]
@@ -232,26 +232,37 @@ def renderTok (s : Surface) (augEof : Nat) : Except String (String × String) :=
     "\n".intercalate variants.toList,
     "}",
     "",
-    s!"{impl_} Terminal for Tok{lt} \{",
+    s!"{impl_} Tok{lt} \{",
+    "    /// The terminal index of the token.",
     "    #[inline(always)]",
-    "    fn term(&self) -> u16 {",
+    "    pub fn term(&self) -> u16 {",
     "        match self {",
     "\n".intercalate arms.toList,
     "        }",
     "    }",
     "}" ])
 
-/-- The Rust statement that handles a rule's match: it pushes the token directly, so
-    that the token is built in the output vector and not on the stack first. -/
-def stepStmt : LexAct → String
+/-- The Rust statement that handles a rule's match: it pushes a `Token` (the rule `gid`, the
+    terminal and the span), which carries no value. A rule whose value can fail to fit its
+    Rust type (a numeral beyond `u64`) still runs the function, to fail where Lean's
+    value would not exist. -/
+def stepStmt (gid : Nat) : LexAct → String
   | .skip => "{}"
-  | .const n => s!"out.push(Spanned \{ tok: Tok::{n}, start: pos as u32, end: end as u32 })"
-  | .lexeme n =>
-    s!"out.push(Spanned \{ tok: Tok::{n}(text), start: pos as u32, end: end as u32 })"
+  | .const n | .lexeme n =>
+    s!"out.push(Token \{ rule: {gid}, term: term::{n}, start: pos as u32, end: end as u32 })"
   | .transform n f =>
-    s!"match {f}(text) \{ Some(v) => out.push(Spanned \{ tok: Tok::{n}(v), start: pos as u32, end: end as u32 }), None => return Err(lex_error(src, pos, LexErrorReason::Unrepresentable)) }"
+    s!"match {f}(text) \{ Some(_) => out.push(Token \{ rule: {gid}, term: term::{n}, start: pos as u32, end: end as u32 }), None => return Err(lex_error(src, pos, LexErrorReason::Unrepresentable)) }"
   | .tokenFn f =>
-    s!"match {f}(text) \{ Some(tok) => out.push(Spanned \{ tok, start: pos as u32, end: end as u32 }), None => return Err(lex_error(src, pos, LexErrorReason::Unrepresentable)) }"
+    s!"match {f}(text) \{ Some(tok) => out.push(Token \{ rule: {gid}, term: tok.term(), start: pos as u32, end: end as u32 }), None => return Err(lex_error(src, pos, LexErrorReason::Unrepresentable)) }"
+
+/-- The Rust expression of the value a rule's token carries, from the lexeme `text`: the
+    `Tok` the Lean action builds. -/
+def valueExpr : LexAct → String
+  | .skip => "None"
+  | .const n => s!"Some(Tok::{n})"
+  | .lexeme n => s!"Some(Tok::{n}(text))"
+  | .transform n f => s!"{f}(text).map(Tok::{n})"
+  | .tokenFn f => s!"{f}(text)"
 
 /-- A mode's DFA in the layout the Rust scanner reads (decision D16).
 
@@ -314,6 +325,40 @@ def EncodedMode.agrees (e : EncodedMode) (bd : ByteDFA) (cls : Array Nat) (nc : 
       let t := e.trans[off + cls[b]!]!
       if tg == 0 then t == 0 else t == (e.newIdx[tg - 1]! + 1) * nc
 
+/-- `token_value`: the value of a token, from its rule and its text. -/
+def valueFn (s : Surface) (lt : String) (valueArms : Array String) : String :=
+  String.intercalate "\n" ([
+    "/// The `rule` of the end-of-input token.",
+    "pub const EOF_RULE: u16 = lpg_kernel::RULE_EOF;",
+    "",
+    "/// The value of a token: the `Tok` that the lexer action of its rule builds from its",
+    "/// lexeme `text` (the source text of its span). `None` for a rule that emits no token.",
+    (if lt.isEmpty then "pub fn token_value(rule: u16, text: &str) -> Option<Tok> {"
+     else "pub fn token_value<'a>(rule: u16, text: &'a str) -> Option<Tok<'a>> {"),
+    "    match rule {" ] ++ valueArms.toList ++ [
+    s!"        EOF_RULE => Some(Tok::{s.eof}),",
+    "        _ => None,",
+    "    }",
+    "}" ])
+
+/-- The entry of `RULE_TERM` for a rule: its terminal, or the kernel's `TERM_SKIP` (65535) for
+    a rule that emits nothing, or `TERM_HOOK` (65534) for one whose terminal its function
+    computes. The two are written as numbers: Aeneas translates a constant of another crate
+    as a computation, which a table literal cannot hold. -/
+def kernelTerm : LexAct → String
+  | .skip => "65535"
+  | .const n | .lexeme n | .transform n _ => s!"term::{n}"
+  | .tokenFn _ => "65534"
+
+/-- The arm of the pass after `lpg_kernel::lex` for a rule that needs one: a rule whose
+    terminal its function computes sets it; a rule whose value can fail to fit its Rust type
+    checks it. The arm is `false` where the token is not representable. -/
+def postStmt (gid : Nat) : LexAct → Option String
+  | .transform _ f => some s!"            {gid} => {f}(text).is_some(),"
+  | .tokenFn f =>
+    some s!"            {gid} => match {f}(text) \{ Some(tok) => \{ t.term = tok.term(); true } None => false },"
+  | _ => none
+
 /-- Render the lexer: tables, then `tokenize`. Fails on an action outside the five
     forms. -/
 def renderLexer (s : Surface) (augEof : Nat) (spec : LexerSpec) : Except String String := do
@@ -343,6 +388,17 @@ def renderLexer (s : Surface) (augEof : Nat) (spec : LexerSpec) : Except String 
   let mut modeArms : Array String := #[]
   let mut transArms : Array String := #[]
   let mut usesModes := false
+  -- A token names the rule that produced it by a number that is global to the lexer: the
+  -- rules of the modes in order.
+  let mut ruleBase : Array Nat := #[]
+  let mut total := 0
+  for mode in spec.modes do
+    ruleBase := ruleBase.push total
+    total := total + mode.rules.size
+  if total ≥ 0xFFFF then throw "too many lexer rules for the Rust token encoding"
+  let mut valueArms : Array String := #[]
+  let mut ruleTerms : Array String := #[]
+  let mut postArms : Array String := #[]
   for h : mi in [0:spec.modes.size] do
     let mode := spec.modes[mi]
     let (bd, cls, nc) := dfas[mi]!
@@ -365,9 +421,15 @@ def renderLexer (s : Surface) (augEof : Nat) (spec : LexerSpec) : Except String 
       let r := mode.rules[ri]
       let act ← classifyLexAct s spec r
         |>.mapError fun e => s!"mode `{mode.name}`, rule {ri}: {e}"
+      ruleTerms := ruleTerms.push (kernelTerm act)
+      match postStmt (ruleBase[mi]! + ri) act with
+      | some st => postArms := postArms.push st
+      | none => pure ()
       match act with
       | .skip => skips := skips.push (toString ri)
-      | _ => arms := arms.push s!"                {ri} => {stepStmt act},"
+      | _ => arms := arms.push s!"                {ri} => {stepStmt (ruleBase[mi]! + ri) act},"
+      if !(match act with | .skip => true | _ => false) then
+        valueArms := valueArms.push s!"        {ruleBase[mi]! + ri} => {valueExpr act},"
       match r.trans with
       | .stay => pure ()
       | .push m =>
@@ -383,12 +445,91 @@ def renderLexer (s : Surface) (augEof : Nat) (spec : LexerSpec) : Except String 
       ["                _ => {}", "            },"]))
     transArms := transArms.push (String.intercalate "\n" (
       [s!"            {mi} => match r \{"] ++ tarms.toList ++ ["                _ => {}", "            },"]))
+  let lexErrorDefs := String.intercalate "\n\n" [
+    "/// What the lexer could not do at the error position.\n" ++
+    "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n" ++
+    "pub enum LexErrorReason {\n    /// No rule matches.\n    NoMatch,\n" ++
+    "    /// A rule matches, but its value does not fit the Rust type (a numeral beyond `u64`).\n" ++
+    "    Unrepresentable,\n    /// End of input inside a nested mode.\n    EndInMode,\n" ++
+    "    /// The input is longer than `u32::MAX` bytes.\n    TooLong,\n}",
+    "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n" ++
+    "pub struct LexError {\n" ++
+    "    /// Character offset, as in Lean's `LexError.pos`.\n    pub pos: usize,\n" ++
+    "    /// Byte offset.\n    pub byte_pos: usize,\n" ++
+    "    /// The offending character; none at end of input.\n    pub ch: Option<char>,\n" ++
+    "    pub reason: LexErrorReason,\n}",
+    "fn lex_error(src: &str, byte_pos: usize, reason: LexErrorReason) -> LexError {\n" ++
+    "    LexError {\n        pos: src[..byte_pos].chars().count(),\n        byte_pos,\n" ++
+    "        ch: src[byte_pos..].chars().next(),\n        reason,\n    }\n}" ]
+  if spec.modes.size == 1 && !usesModes then
+    let (bd, cls, nc) := dfas[0]!
+    let e := encodeMode bd cls nc
+    let nRows := bd.nStates + 1
+    if nRows ≥ 0xFFFF then throw "too many lexer states for the Rust lexer kernel"
+    -- The kernel reads the DFA by state: row `k` of `trans` is the encoded row at offset
+    -- `k * nc`, and an entry is the target's row number (the offset divided by `nc`).
+    let rows := (Array.range nRows).map fun k =>
+      (Array.range nc).map fun c => toString (e.trans.getD (k * nc + c) 0 / nc)
+    let acc := (Array.range nRows).map fun k => toString (e.acceptAt.getD (k * nc) 0)
+    let kTables := String.intercalate "\n" [
+      s!"// The lexer DFA: {bd.nStates} states, {nc} byte classes.",
+      staticArr "LEX_CLASS" "u8" (cls.map toString),
+      staticRows "LEX_TRANS" "u16" nc rows,
+      staticArr "LEX_ACCEPT" "u16" acc,
+      staticArr "RULE_TERM" "u16" ruleTerms,
+      s!"const LEX_START: usize = {e.start / nc};",
+      s!"const LEX_ACCEPT_FROM: usize = {e.acceptFrom / nc};" ]
+    let kBody := String.intercalate "\n" ([
+      "/// `lpg_kernel::lex` with this lexer's tables: the tokens of `src`, with the terminal",
+      "/// `TERM_HOOK` for the rules whose terminal depends on the text.",
+      "pub fn lex(src: &[u8], out: &mut Vec<Token>) -> Result<(), lpg_kernel::LexFail> {",
+      "    lpg_kernel::lex(src, out, &LEX_CLASS, &LEX_TRANS, &LEX_ACCEPT, LEX_START, LEX_ACCEPT_FROM,",
+      "        &RULE_TERM, EOF)",
+      "}",
+      "",
+      "/// Longest-match tokenization of `src`, appending to `out` (which is not cleared).",
+      "/// The last token pushed is the end-of-input token. A token has no value; `token_value`",
+      "/// rebuilds it from the source text of its span. The loop is `lpg_kernel::lex`; the",
+      "/// terminals that depend on the text, and the values that may not fit their Rust",
+      "/// type, are computed after it, and the first error in the source is reported.",
+      "pub fn tokenize(src: &str, out: &mut Vec<Token>) -> Result<(), LexError> {",
+      "    let first = out.len();",
+      "    let res = lex(src.as_bytes(), out);" ] ++
+      (if postArms.isEmpty then [] else [
+      "    for i in first..out.len() {",
+      "        let t = &mut out[i];",
+      "        let text = &src[t.start as usize..t.end as usize];",
+      "        let ok = match t.rule {",
+      "\n".intercalate postArms.toList,
+      "            _ => true,",
+      "        };",
+      "        if !ok {",
+      "            let at = t.start as usize;",
+      "            out.truncate(i);",
+      "            return Err(lex_error(src, at, LexErrorReason::Unrepresentable));",
+      "        }",
+      "    }" ]) ++ [
+      "    match res {",
+      "        Ok(()) => Ok(()),",
+      "        Err(lpg_kernel::LexFail::NoMatch(pos)) => Err(lex_error(src, pos, LexErrorReason::NoMatch)),",
+      "        Err(lpg_kernel::LexFail::TooLong) => {",
+      "            Err(LexError { pos: 0, byte_pos: 0, ch: None, reason: LexErrorReason::TooLong })",
+      "        }",
+      "    }",
+      "}" ])
+    return String.intercalate "\n\n" [
+      tokEnum,
+      valueFn s lt valueArms,
+      prelude,
+      kTables,
+      lexErrorDefs,
+      kBody ]
   let modeVar := if usesModes then "stack.last().copied().unwrap_or(0)" else "0"
   let body := String.intercalate "\n" ([
     "/// Longest-match tokenization of `src`, appending to `out` (which is not cleared).",
-    "/// The last token pushed is the end-of-input token.",
-    (if lt.isEmpty then "pub fn tokenize(src: &str, out: &mut Vec<Spanned<Tok>>) -> Result<(), LexError> {"
-     else "pub fn tokenize<'a>(src: &'a str, out: &mut Vec<Spanned<Tok<'a>>>) -> Result<(), LexError> {"),
+    "/// The last token pushed is the end-of-input token. A token has no value; `token_value`",
+    "/// rebuilds it from the source text of its span.",
+    "pub fn tokenize(src: &str, out: &mut Vec<Token>) -> Result<(), LexError> {",
     "    let bytes = src.as_bytes();",
     "    let n = bytes.len();",
     "    let mut pos = 0usize;" ] ++
@@ -416,11 +557,12 @@ def renderLexer (s : Surface) (augEof : Nat) (spec : LexerSpec) : Except String 
       "    if stack.len() != 1 {",
       "        return Err(lex_error(src, n, LexErrorReason::EndInMode));",
       "    }" ] else []) ++ [
-    "    out.push(Spanned { tok: Tok::" ++ s.eof ++ ", start: n as u32, end: n as u32 });",
+    "    out.push(Token { rule: EOF_RULE, term: EOF, start: n as u32, end: n as u32 });",
     "    Ok(())",
     "}" ])
   return String.intercalate "\n\n" [
     tokEnum,
+    valueFn s lt valueArms,
     prelude,
     "/// One lexer mode. A state is the offset of its row in `trans`; `trans[row + class]` is\n" ++
     "/// the offset of the next row, 0 for dead. Accepting states are the rows at or above\n" ++
@@ -429,20 +571,7 @@ def renderLexer (s : Surface) (augEof : Nat) (spec : LexerSpec) : Except String 
     "    accept: &'static [" ++ acceptTy ++ "],\n    start: usize,\n    accept_from: usize,\n}",
     String.intercalate "\n\n" tables.toList,
     s!"static MODES: [Mode; {spec.modes.size}] = [\n" ++ "\n".intercalate modeRecs.toList ++ "\n];",
-    "/// What the lexer could not do at the error position.\n" ++
-    "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n" ++
-    "pub enum LexErrorReason {\n    /// No rule matches.\n    NoMatch,\n" ++
-    "    /// A rule matches, but its value does not fit the Rust type (a numeral beyond `u64`).\n" ++
-    "    Unrepresentable,\n    /// End of input inside a nested mode.\n    EndInMode,\n}\n\n" ++
-    "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n" ++
-    "pub struct LexError {\n" ++
-    "    /// Character offset, as in Lean's `LexError.pos`.\n    pub pos: usize,\n" ++
-    "    /// Byte offset.\n    pub byte_pos: usize,\n" ++
-    "    /// The offending character; none at end of input.\n    pub ch: Option<char>,\n" ++
-    "    pub reason: LexErrorReason,\n}",
-    "fn lex_error(src: &str, byte_pos: usize, reason: LexErrorReason) -> LexError {\n" ++
-    "    LexError {\n        pos: src[..byte_pos].chars().count(),\n        byte_pos,\n" ++
-    "        ch: src[byte_pos..].chars().next(),\n        reason,\n    }\n}",
+    lexErrorDefs,
     String.intercalate "\n" [
       "/// The longest match from `pos`: the accepting rule plus one (0 for none) and its end.",
       "#[inline(always)]",
