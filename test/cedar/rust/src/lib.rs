@@ -19,11 +19,10 @@ pub mod cst;
 pub mod generated;
 pub mod hooks;
 
-use generated::{Entry, LexError, Node, ParseError, Spanned, Tok};
+use generated::{Entry, LexError, Node, ParseError, Token};
 
 /// Reusable buffers for the parse stack and the parse trace, so repeated parses do not
-/// allocate them. The tokens borrow the source, so they live in a vector the caller
-/// owns for as long as the source.
+/// allocate them. The tokens live in a vector the caller owns.
 #[derive(Default)]
 pub struct Parser {
     pub stack: Vec<Entry>,
@@ -43,11 +42,7 @@ impl Parser {
 
     /// Lex `src` into `tokens` (cleared first) and parse it; the postorder trace is left
     /// in `self.nodes`.
-    pub fn parse<'a>(
-        &mut self,
-        src: &'a str,
-        tokens: &mut Vec<Spanned<Tok<'a>>>,
-    ) -> Result<(), Error> {
+    pub fn parse(&mut self, src: &str, tokens: &mut Vec<Token>) -> Result<(), Error> {
         tokens.clear();
         generated::tokenize(src, tokens).map_err(Error::Lex)?;
         generated::parse(tokens, &mut self.stack, &mut self.nodes).map_err(Error::Parse)

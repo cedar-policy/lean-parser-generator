@@ -50,10 +50,17 @@ fn main() {
                         .iter()
                         .map(|t| format!(
                                 "{}:{}-{}{}",
-                                generated::Terminal::term(&t.tok),
+                                t.term,
                                 t.start,
                                 t.end,
-                                if values { value_of(&t.tok) } else { String::new() }
+                                if values {
+                                    // The value is rebuilt from the text of the span.
+                                    generated::token_value(t.rule, &src[t.start as usize..t.end as usize])
+                                        .map(|v| value_of(&v))
+                                        .unwrap_or_default()
+                                } else {
+                                    String::new()
+                                }
                             ))
                         .collect();
                     println!("{path} {}", parts.join(" "));

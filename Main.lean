@@ -35,6 +35,7 @@ public import LeanParserGenerator.Emit.Codegen
 public import LeanParserGenerator.Emit.CodegenVerified
 public import LeanParserGenerator.Emit.CodegenLexer
 public import LeanParserGenerator.Emit.CodegenRust
+public import LeanParserGenerator.Emit.Rust.BridgeIO
 public import LeanParserGenerator.Emit.Rust.Report
 public import LeanParserGenerator.Emit.CodegenLexerRoundtrip
 public import LeanParserGenerator.Emit.CodegenParserRoundtrip
@@ -206,6 +207,8 @@ structure GenConfig where
   rustOut : Option String := none
   /-- When non-empty, only these outputs are written. -/
   only : List OutputKind := []
+  /-- Do not write the proof package of the Rust code (`%option gen_rust_verif`). -/
+  skipRustVerif : Bool := false
 
 /-- Generate the modules for a `.lig`. Output paths and module names are inferred
     from the `.lig` stem (`baseOfLig`); the `%lexer` block adds the lexer module,
@@ -267,6 +270,24 @@ def generate (cfg : GenConfig) : IO UInt32 := do
         match Emit.Rust.generateRustFrom surface prepared ligPath with
         | .error e => return ← fail s!"{ligPath}: Rust generation failed: {e}"
         | .ok rustSource => writeOutput rp rustSource "Rust"
+    -- The proof package of the Rust code, via `%option gen_rust_verif <dir>` (experimental).
+    -- Its directory is relative to the `.lig`, like the one of `%option gen_rust`.
+    if wants .rust then
+      if let some rel := surface.options.genRustVerif then
+        let ligDir := dirOfPath ligPath
+        if surface.options.genRust.isNone then
+          return ← fail s!"{ligPath}: `%option gen_rust_verif` needs `%option gen_rust`"
+        if cfg.skipRustVerif then
+          IO.println s!"skipped {ligDir ++ rel} (--skip-rust-verif)"
+        else if let .error e := Emit.RustBridge.coverage surface then
+          if surface.options.rustVerifOptional then
+            IO.eprintln s!"warning: {ligPath}: no Rust proof package: {e}"
+          else
+            return ← fail s!"{ligPath}: {e} (`%option rust_verif_optional` skips the proof package instead)"
+        else
+          match ← Emit.RustBridge.writeBridge surface prepared ligDir base executableImport lexerImport with
+          | .error e => return ← fail s!"{ligPath}: Rust proof package: {e}"
+          | .ok files => for f in files do IO.println s!"wrote {f}"
     -- Roundtrip modules (experimental) are opt-in through `%option`s and are written
     -- only when no `--only` restriction is given.
     if cfg.only.isEmpty then
@@ -336,6 +357,11 @@ options:
                            <output> is verified, parser, lexer, or rust.
   --print-grammar <fmt>    print the checked grammar as bnf or markdown; writes no files
   --rust-report [-v]       report which actions the Rust backend can emit; writes no files
+  --skip-rust-verif        do not write the proof package of the Rust code
+                           (`%option gen_rust_verif`)
+  --rust-extract-kernel <lpg-kernel dir> <rust/verif/Kernel dir>
+                           rewrite the proved translation of the Rust kernel; writes no
+                           other files
   -h, --help               show this help
   --version                show the version
 
@@ -357,6 +383,7 @@ inductive Command where
   | generate (cfg : GenConfig)
   | printGrammar (format : GrammarViewFormat) (ligPath : String)
   | rustReport (verbose : Bool) (ligPath : String)
+  | extractKernel (kernel verifKernel : String)
 
 /-- Split `--flag=value` into `(flag, some value)`. -/
 private def splitFlag (a : String) : String × Option String :=
@@ -375,6 +402,7 @@ private partial def parseArgs (args : List String) : Except String Command := do
   let mut view : Option GrammarViewFormat := none
   let mut report : Option Bool := none
   let mut verbose := false
+  let mut extract : Option (String × String) := none
   let mut help := false
   let mut version := false
   while !rest.isEmpty do
@@ -394,6 +422,11 @@ private partial def parseArgs (args : List String) : Except String Command := do
     | "--version" => version := true
     | "-v" | "--verbose" => verbose := true
     | "--rust-report" => report := some true
+    | "--skip-rust-verif" => cfg := { cfg with skipRustVerif := true }
+    | "--rust-extract-kernel" =>
+        match rest with
+        | kernel :: verifKernel :: tl => extract := some (kernel, verifKernel); rest := tl
+        | _ => throw "`--rust-extract-kernel` needs two directories: the lpg-kernel crate and the rust/verif/Kernel directory"
     | "--out-dir" =>
         cfg := { cfg with outDir := some (← value ()) }
         if consume then rest := rest.tail!
@@ -420,6 +453,7 @@ private partial def parseArgs (args : List String) : Except String Command := do
         else positional := positional.push a
   if help then return .help
   if version then return .version
+  if let some (kernel, verifKernel) := extract then return .extractKernel kernel verifKernel
   if positional.size > 1 then
     throw s!"expected one input file, got {positional.size}: {" ".intercalate positional.toList}"
   let some lig := positional[0]? | throw "missing input file"
@@ -438,6 +472,12 @@ def run (args : List String) : IO UInt32 := do
   | .ok (.generate cfg) => generate cfg
   | .ok (.printGrammar f lig) => printGrammarView f lig
   | .ok (.rustReport v lig) => rustReport v lig
+  | .ok (.extractKernel kernel verifKernel) =>
+      match ← Emit.RustBridge.extractKernel kernel verifKernel with
+      | .ok () =>
+          IO.println s!"wrote {verifKernel}/Types.lean and {verifKernel}/Funs.lean"
+          return 0
+      | .error e => fail e
 
 def main (args : List String) : IO UInt32 := do
   try run args

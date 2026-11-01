@@ -191,6 +191,15 @@ structure Options where
       `%option gen_rust rust/src/generated.rs`; the default invocation then also writes
       it (docs/RUST_PARSER.md). -/
   genRust : Option String := none
+  /-- The directory of the Lean package that proves the generated Rust equal to the Lean
+      lexer and parser, relative to the `.lig`'s directory. Set by
+      `%option gen_rust_verif rust_bridge`; needs `gen_rust`, and Charon and Aeneas when the
+      generator writes it (docs/RUST_VERIFICATION.md). -/
+  genRustVerif : Option String := none
+  /-- With `gen_rust_verif`: when the proofs do not cover the grammar (a lexer with several
+      modes, for example), warn and write no proof package instead of failing. Set by
+      `%option rust_verif_optional`. -/
+  rustVerifOptional : Bool := false
   /-- The Rust type of a user context passed to `parse_values` as `ctx: &'a <type>` and
       visible in the `!!rust{…}` actions (for example an arena the actions allocate the
       AST from). Set by `%option rust_ctx crate::ast::Arena` (docs/RUST_PARSER.md). -/
@@ -289,6 +298,12 @@ def optionSpecs : List OptionSpec := [
     valueDescription := "a file path",
     example_ := "gen_rust rust/src/generated.rs",
     set := fun o v => { o with genRust := some v } },
+  { name := "gen_rust_verif", value := .path,
+    valueDescription := "a directory",
+    example_ := "gen_rust_verif rust_bridge",
+    set := fun o v => { o with genRustVerif := some v } },
+  { name := "rust_verif_optional", value := .flag,
+    set := fun o _ => { o with rustVerifOptional := true } },
   { name := "rust_ctx", value := .path,
     valueDescription := "a Rust type",
     example_ := "rust_ctx crate::ast::Arena",
@@ -485,7 +500,7 @@ def scanModulePath : ScanM (Except String (String × Span)) := do
   let (s, sp) ← takeWhile (fun ch => Cursor.isIdentCont ch || ch == '.')
   return .ok (s, sp)
 
-/-- Scan a file path: a run of non-whitespace characters. Used for `%option gen_rust`, `rust_ctx` and `rust_list`. -/
+/-- Scan a file path: a run of non-whitespace characters. Used for `%option gen_rust`, `gen_rust_verif`, `rust_ctx` and `rust_list`. -/
 def scanPathWord : ScanM (Except String (String × Span)) := do
   skipWs
   let c ← get

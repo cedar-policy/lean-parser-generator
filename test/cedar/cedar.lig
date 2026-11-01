@@ -5,6 +5,7 @@ open Cedar
 %option compress_tables
 %option module_prefix cedar
 %option gen_rust rust/src/generated.rs
+%option gen_rust_verif rust_bridge
 %option roundtrip_lexer
 %option roundtrip_parser unparsePolicies
 %option roundtrip_format renderTok
