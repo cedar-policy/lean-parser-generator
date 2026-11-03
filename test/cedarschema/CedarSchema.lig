@@ -3,6 +3,8 @@ import cedarschema.CedarSchemaAst
 open CedarSchema
 }
 %option module_prefix cedarschema
+%option gen_rust rust/src/generated.rs
+%option rust_ctx crate::cst::Checks
 %option roundtrip_lexer
 %option roundtrip_parser unparseSchema
 %option roundtrip_format renderTok
@@ -49,6 +51,8 @@ def stripStringQuotes (value : String) : String :=
   let digit = ['0'-'9']
   let identStart = ['a'-'z' 'A'-'Z' '_']
   let identCont = ['a'-'z' 'A'-'Z' '0'-'9' '_']
+  rust keywordOrIdentifier => crate::hooks::keyword_or_identifier
+  rust stripStringQuotes => crate::hooks::strip_string_quotes
   | ws+                                             => skip
   | "//" [^ '\n' '\r']* ("\n" | "\r")*              => skip
   | identStart identCont* as value                  => { keywordOrIdentifier value }
@@ -75,227 +79,329 @@ def stripStringQuotes (value : String) : String :=
 %%
 
 -- Schema := Namespace*
-schema :: Schema
+schema :: Schema !!rust{crate::cst::Schema}
   | ns=namespace_list                          { Schema.mk ns }
-namespace_list :: List (Annotated Namespace)
+      !!rust{ crate::cst::Schema { namespaces: ns } }
+namespace_list :: List (Annotated Namespace) !!rust{std::collections::VecDeque<crate::cst::AnnNamespace>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | n=namespace rest=namespace_list            { n :: rest }
+      !!rust{ crate::cst::cons(n, rest) }
 
 -- Annotation := '@' AnyIdent ('(' Str ')')?
-annotation :: Annotation
+annotation :: Annotation !!rust{crate::cst::Annotation}
   | AT key=any_ident                           { Annotation.mk key none }
+      !!rust{ crate::cst::Annotation { key: key, value: None } }
   | AT key=any_ident LPAREN value=str RPAREN   { Annotation.mk key (some value) }
-annotation_list :: List Annotation
+      !!rust{ crate::cst::Annotation { key: key, value: Some(value) } }
+annotation_list :: List Annotation !!rust{std::collections::VecDeque<crate::cst::Annotation>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | a=annotation rest=annotation_list          { a :: rest }
+      !!rust{ crate::cst::cons(a, rest) }
 
 -- Namespace := Annotated<Namedspace> | Annotated<Decl>
 -- Namedspace := 'namespace' Path '{' Annotated<Decl>* '}'
 -- Both alternatives begin with Annotation*, so the annotations are shared and
 -- the choice is driven by the token after them (NAMESPACE vs a Decl starter).
-namespace :: Annotated Namespace
+namespace :: Annotated Namespace !!rust{crate::cst::AnnNamespace}
   | annotations=annotation_list body=namespace_body
       { Annotated.mk body annotations }
-namespace_body :: Namespace
+      !!rust{ crate::cst::annotated(ctx, body, annotations) }
+namespace_body :: Namespace !!rust{crate::cst::Namespace}
   | NAMESPACE p=path LBRACE decls=annotated_decl_list RBRACE
       { Namespace.mk (some p) decls }
+      !!rust{ crate::cst::Namespace { name: Some(p), decls: decls } }
   | d=annotated_decl_bare
       { Namespace.mk none [d] }
+      !!rust{ crate::cst::Namespace { name: None, decls: std::collections::VecDeque::from([d]) } }
 
 -- Annotated<Decl>* : declarations inside a namespace body, each with its own
 -- leading Annotation*.
-annotated_decl_list :: List (Annotated Declaration)
+annotated_decl_list :: List (Annotated Declaration) !!rust{std::collections::VecDeque<crate::cst::AnnDecl>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | d=annotated_decl rest=annotated_decl_list  { d :: rest }
-annotated_decl :: Annotated Declaration
+      !!rust{ crate::cst::cons(d, rest) }
+annotated_decl :: Annotated Declaration !!rust{crate::cst::AnnDecl}
   | annotations=annotation_list d=decl         { Annotated.mk d annotations }
+      !!rust{ crate::cst::annotated(ctx, d, annotations) }
 -- The top-level bare declaration form of a Namespace already consumed its
 -- Annotation* in `namespace`, so it takes a decl with no further annotations.
-annotated_decl_bare :: Annotated Declaration
+annotated_decl_bare :: Annotated Declaration !!rust{crate::cst::AnnDecl}
   | d=decl                                     { Annotated.mk d [] }
+      !!rust{ crate::cst::Annotated { data: d, annotations: std::collections::VecDeque::new() } }
 
 -- Decl := Entity | Action | TypeDecl
-decl :: Declaration
+decl :: Declaration !!rust{crate::cst::Declaration}
   | e=entity                                   { Declaration.entity e }
+      !!rust{ crate::cst::Declaration::Entity(e) }
   | a=action                                   { Declaration.action a }
+      !!rust{ crate::cst::Declaration::Action(Box::new(a)) }
   | t=type_decl                                { Declaration.type t }
+      !!rust{ crate::cst::Declaration::Type(Box::new(t)) }
 
 -- Entity :=
 --     'entity' Idents ('in' EntTypes)? ('='? '{' AttrDecls? '}')? ('tags' Type)? ';'
 --   | 'entity' Idents 'enum' '[' Eids ']' ';'
-entity :: EntityDecl
+entity :: EntityDecl !!rust{crate::cst::EntityDecl}
   | ENTITY names=idents members=opt_member_of body=opt_entity_body tags=opt_tags SEMICOLON
       { EntityDecl.standard (StandardEntityDecl.mk names members body tags) }
+      !!rust{ crate::cst::EntityDecl::Standard(Box::new(crate::cst::StandardEntityDecl { names: names, member_of_types: members, attrs: body, tags: tags })) }
   | ENTITY names=idents ENUM LBRACKET choices=eids RBRACKET SEMICOLON
       { EntityDecl.enum (EnumEntityDecl.mk names choices) }
-opt_member_of :: List Path
+      !!rust{ crate::cst::EntityDecl::Enum(Box::new(crate::cst::EnumEntityDecl { names: names, choices: choices })) }
+opt_member_of :: List Path !!rust{std::collections::VecDeque<crate::cst::Path>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | IN ets=ent_types                           { ets }
-opt_entity_body :: List (Annotated AttrDecl)
+      !!rust{ ets }
+opt_entity_body :: List (Annotated AttrDecl) !!rust{std::collections::VecDeque<crate::cst::AnnAttr>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | opt_eq LBRACE attrs=opt_attr_decls RBRACE  { attrs }
-opt_eq :: Unit
+      !!rust{ attrs }
+opt_eq :: Unit !!rust{()}
   |                                            { () }
+      !!rust{ () }
   | EQUALS                                     { () }
-opt_tags :: Option SType
+      !!rust{ () }
+opt_tags :: Option SType !!rust{Option<crate::cst::SType>}
   |                                            { none }
+      !!rust{ None }
   | TAGS t=type                                { some t }
+      !!rust{ Some(t) }
 
 -- Action := 'action' Names ('in' QualNameOrQualNames)?
 --           ('appliesTo' '{' AppDecls '}')? ('attributes' '{' '}')? ';'
-action :: ActionDecl
+action :: ActionDecl !!rust{crate::cst::ActionDecl}
   | ACTION names=names parents=opt_parents apps=opt_applies_to opt_action_attrs SEMICOLON
       { ActionDecl.mk names parents apps }
-opt_parents :: Option (List QualName)
+      !!rust{ crate::cst::ActionDecl { names: names, parents: parents, app_decls: apps } }
+opt_parents :: Option (List QualName) !!rust{Option<std::collections::VecDeque<crate::cst::QualName>>}
   |                                            { none }
+      !!rust{ None }
   | IN qns=qual_name_or_qual_names             { some qns }
-opt_applies_to :: Option (List AppDecl)
+      !!rust{ Some(qns) }
+opt_applies_to :: Option (List AppDecl) !!rust{Option<std::collections::VecDeque<crate::cst::AppDecl>>}
   |                                            { none }
+      !!rust{ None }
   | APPLIESTO LBRACE ds=app_decls RBRACE       { some ds }
-opt_action_attrs :: Unit
+      !!rust{ Some(ds) }
+opt_action_attrs :: Unit !!rust{()}
   |                                            { () }
+      !!rust{ () }
   | ATTRIBUTES LBRACE RBRACE                   { () }
+      !!rust{ () }
 
 -- TypeDecl := 'type' Ident '=' Type ';'
-type_decl :: TypeDecl
+type_decl :: TypeDecl !!rust{crate::cst::TypeDecl}
   | TYPE i=ident EQUALS t=type SEMICOLON        { TypeDecl.mk i t }
+      !!rust{ crate::cst::TypeDecl { name: i, definition: t } }
 
 -- AppDecls := (('principal'|'resource') ':' EntTypes | 'context' ':' (Path|RecType))
 --             [',' | ',' AppDecls]
-app_decls :: List AppDecl
+app_decls :: List AppDecl !!rust{std::collections::VecDeque<crate::cst::AppDecl>}
   | pr=principal_or_resource COLON ets=ent_types rest=app_decls_tail
       { AppDecl.pr pr (someIfNonEmpty ets) :: rest }
+      !!rust{ crate::cst::cons(crate::cst::AppDecl::Pr(pr, crate::cst::some_if_nonempty(ets)), rest) }
   | CONTEXT COLON p=path rest=app_decls_tail
       { AppDecl.contextPath p :: rest }
+      !!rust{ crate::cst::cons(crate::cst::AppDecl::ContextPath(p), rest) }
   | CONTEXT COLON LBRACE attrs=opt_attr_decls RBRACE rest=app_decls_tail
       { AppDecl.contextRecord attrs :: rest }
-app_decls_tail :: List AppDecl
+      !!rust{ crate::cst::cons(crate::cst::AppDecl::ContextRecord(attrs), rest) }
+app_decls_tail :: List AppDecl !!rust{std::collections::VecDeque<crate::cst::AppDecl>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA                                      { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA ds=app_decls                         { ds }
+      !!rust{ ds }
 
 -- Type := Path | 'Set' '<' Type '>' | '{' AttrDecls? '}'
-type :: SType
+type :: SType !!rust{crate::cst::SType}
   | p=path                                     { SType.ident p }
+      !!rust{ crate::cst::SType::Ident(p) }
   | SET LANGLE t=type RANGLE                   { SType.set t }
+      !!rust{ crate::cst::SType::Set(Box::new(t)) }
   | LBRACE attrs=opt_attr_decls RBRACE         { SType.record attrs }
+      !!rust{ crate::cst::SType::Record(attrs) }
 
 -- AttrDecls := Annotation* Name '?'? ':' Type [',' | ',' AttrDecls]
-opt_attr_decls :: List (Annotated AttrDecl)
+opt_attr_decls :: List (Annotated AttrDecl) !!rust{std::collections::VecDeque<crate::cst::AnnAttr>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | ds=attr_decls                              { ds }
-attr_decls :: List (Annotated AttrDecl)
+      !!rust{ ds }
+attr_decls :: List (Annotated AttrDecl) !!rust{std::collections::VecDeque<crate::cst::AnnAttr>}
   | annotations=annotation_list name=name req=opt_question COLON ty=type rest=attr_decls_tail
       { Annotated.mk (AttrDecl.mk name req ty) annotations :: rest }
-attr_decls_tail :: List (Annotated AttrDecl)
+      !!rust{ crate::cst::cons(crate::cst::annotated(ctx, crate::cst::AttrDecl { name: name, required: req, ty: ty }, annotations), rest) }
+attr_decls_tail :: List (Annotated AttrDecl) !!rust{std::collections::VecDeque<crate::cst::AnnAttr>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA                                      { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA ds=attr_decls                        { ds }
+      !!rust{ ds }
 -- '?'? : present means optional attribute (required := false).
-opt_question :: Bool
+opt_question :: Bool !!rust{bool}
   |                                            { true }
+      !!rust{ true }
   | QUESTION                                   { false }
+      !!rust{ false }
 
 -- Ident := AnyIdent (reserved-word rejection dropped)
-ident :: Ident
+ident :: Ident !!rust{crate::cst::Ident}
   | value=any_ident                            { value }
+      !!rust{ crate::cst::check_ident(ctx, value) }
 
 -- AnyIdent := every keyword, or IDENTIFIER
-any_ident :: Ident
+any_ident :: Ident !!rust{crate::cst::Ident}
   | NAMESPACE                                  { .namespaceKw }
+      !!rust{ crate::cst::Ident::NamespaceKw }
   | ENTITY                                     { .entityKw }
+      !!rust{ crate::cst::Ident::EntityKw }
   | SET                                        { .setKw }
+      !!rust{ crate::cst::Ident::SetKw }
   | APPLIESTO                                  { .appliesToKw }
+      !!rust{ crate::cst::Ident::AppliesToKw }
   | PRINCIPAL                                  { .principalKw }
+      !!rust{ crate::cst::Ident::PrincipalKw }
   | ACTION                                     { .actionKw }
+      !!rust{ crate::cst::Ident::ActionKw }
   | RESOURCE                                   { .resourceKw }
+      !!rust{ crate::cst::Ident::ResourceKw }
   | CONTEXT                                    { .contextKw }
+      !!rust{ crate::cst::Ident::ContextKw }
   | ATTRIBUTES                                 { .attributesKw }
+      !!rust{ crate::cst::Ident::AttributesKw }
   | TAGS                                       { .tagsKw }
+      !!rust{ crate::cst::Ident::TagsKw }
   | BOOL                                       { .boolKw }
+      !!rust{ crate::cst::Ident::BoolKw }
   | LONG                                       { .longKw }
+      !!rust{ crate::cst::Ident::LongKw }
   | STRING                                     { .stringKw }
+      !!rust{ crate::cst::Ident::StringKw }
   | TYPE                                       { .typeKw }
+      !!rust{ crate::cst::Ident::TypeKw }
   | IN                                         { .inKw }
+      !!rust{ crate::cst::Ident::InKw }
   | ENUM                                       { .enumKw }
+      !!rust{ crate::cst::Ident::EnumKw }
   | value=IDENTIFIER                           { .ident value }
+      !!rust{ crate::cst::Ident::Ident(value.to_string()) }
 
 -- Str := STRINGLIT (unescaped by the lexer; error path dropped)
-str :: String
+str :: String !!rust{String}
   | value=STRINGLIT                            { value }
+      !!rust{ crate::cst::unescape(ctx, value) }
 
 -- Eid := Str
-eid :: Eid
+eid :: Eid !!rust{crate::cst::Eid}
   | value=str                                  { Eid.mk value }
+      !!rust{ crate::cst::Eid(value) }
 
 -- Name := Ident | Str
-name :: String
+name :: String !!rust{String}
   | id=ident                                   { identToString id }
+      !!rust{ id.into_string() }
   | value=str                                  { value }
+      !!rust{ value }
 
 -- QualName := Name | PathInline '::' Str
 -- Both forms are folded into one left-factored spine so that every '::' is
 -- shifted and the ident-vs-str choice after a '::' is made with one token of
 -- lookahead. `qual_tail` returns a function from the accumulated path prefix
 -- (idents seen so far, most significant first) to the finished QualName.
-qual_name :: QualName
+qual_name :: QualName !!rust{crate::cst::QualName}
   | value=str                                  { QualName.unqualified value }
+      !!rust{ crate::cst::QualName::Unqualified(value) }
   | first=ident rest=qual_tail                 { rest [first] }
-qual_tail :: (List Ident → QualName)
+      !!rust{ rest(vec![first]) }
+qual_tail :: (List Ident → QualName) !!rust{Box<dyn FnOnce(Vec<crate::cst::Ident>) -> crate::cst::QualName>}
   | -- end of an unqualified name: the single ident is the whole name
                                                { fun path => QualName.unqualified (identToString (pathBasename path)) }
+      !!rust{ Box::new(|path| crate::cst::QualName::Unqualified(crate::cst::basename_string(path))) }
   | COLONCOLON value=str                       { fun path => QualName.qualified (pathFromComponents path) value }
+      !!rust{ Box::new(move |path| crate::cst::QualName::Qualified(crate::cst::path_from_components(path), value)) }
   | COLONCOLON next=ident rest=qual_tail       { fun path => rest (path ++ [next]) }
+      !!rust{ Box::new(move |mut path| { path.push(next); rest(path) }) }
 
 -- Path := PathInline; PathInline := Ident ('::' Ident)*
 -- Same left-factoring: a Path is a nonempty '::'-separated ident spine.
-path :: Path
+path :: Path !!rust{crate::cst::Path}
   | first=ident rest=path_tail                 { rest [first] }
-path_tail :: (List Ident → Path)
+      !!rust{ rest(vec![first]) }
+path_tail :: (List Ident → Path) !!rust{Box<dyn FnOnce(Vec<crate::cst::Ident>) -> crate::cst::Path>}
   |                                            { fun components => pathFromComponents components }
+      !!rust{ Box::new(|components| crate::cst::path_from_components(components)) }
   | COLONCOLON next=ident rest=path_tail       { fun components => rest (components ++ [next]) }
+      !!rust{ Box::new(move |mut components| { components.push(next); rest(components) }) }
 -- `path_inline` is kept as an alias used by other rules that referenced it.
-path_inline :: Path
+path_inline :: Path !!rust{crate::cst::Path}
   | p=path                                     { p }
+      !!rust{ p }
 
 -- NonEmptyComma<Ident> : Idents := Ident (',' Ident)*  (no trailing comma)
-idents :: List Ident
+idents :: List Ident !!rust{std::collections::VecDeque<crate::cst::Ident>}
   | i=ident                                    { [i] }
+      !!rust{ std::collections::VecDeque::from([i]) }
   | i=ident COMMA rest=idents                  { i :: rest }
+      !!rust{ crate::cst::cons(i, rest) }
 
 -- NonEmptyComma<Name> : Names
-names :: List String
+names :: List String !!rust{std::collections::VecDeque<String>}
   | n=name                                     { [n] }
+      !!rust{ std::collections::VecDeque::from([n]) }
   | n=name COMMA rest=names                    { n :: rest }
+      !!rust{ crate::cst::cons(n, rest) }
 
 -- NonEmptyComma<QualName> : QualNames
-qual_names :: List QualName
+qual_names :: List QualName !!rust{std::collections::VecDeque<crate::cst::QualName>}
   | q=qual_name                                { [q] }
+      !!rust{ std::collections::VecDeque::from([q]) }
   | q=qual_name COMMA rest=qual_names          { q :: rest }
+      !!rust{ crate::cst::cons(q, rest) }
 
 -- NonEmptyComma<Eid> : Eids
-eids :: List Eid
+eids :: List Eid !!rust{std::collections::VecDeque<crate::cst::Eid>}
   | e=eid                                      { [e] }
+      !!rust{ std::collections::VecDeque::from([e]) }
   | e=eid COMMA rest=eids                      { e :: rest }
+      !!rust{ crate::cst::cons(e, rest) }
 
-principal_or_resource :: PR
+principal_or_resource :: PR !!rust{crate::cst::PR}
   | PRINCIPAL                                  { .principal }
+      !!rust{ crate::cst::PR::Principal }
   | RESOURCE                                   { .resource }
+      !!rust{ crate::cst::PR::Resource }
 
 -- EntTypes := Path | '[' Comma<Path> ']'
-ent_types :: List Path
+ent_types :: List Path !!rust{std::collections::VecDeque<crate::cst::Path>}
   | et=path                                    { [et] }
+      !!rust{ std::collections::VecDeque::from([et]) }
   | LBRACKET ets=path_comma_list RBRACKET      { ets }
+      !!rust{ ets }
 -- Comma<Path> : zero or more, optional trailing comma
-path_comma_list :: List Path
+path_comma_list :: List Path !!rust{std::collections::VecDeque<crate::cst::Path>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | p=path rest=path_comma_tail                { p :: rest }
-path_comma_tail :: List Path
+      !!rust{ crate::cst::cons(p, rest) }
+path_comma_tail :: List Path !!rust{std::collections::VecDeque<crate::cst::Path>}
   |                                            { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA                                      { [] }
+      !!rust{ std::collections::VecDeque::new() }
   | COMMA p=path rest=path_comma_tail          { p :: rest }
+      !!rust{ crate::cst::cons(p, rest) }
 
 -- QualNameOrQualNames := QualName | '[' QualNames ']'
-qual_name_or_qual_names :: List QualName
+qual_name_or_qual_names :: List QualName !!rust{std::collections::VecDeque<crate::cst::QualName>}
   | qn=qual_name                               { [qn] }
+      !!rust{ std::collections::VecDeque::from([qn]) }
   | LBRACKET ns=qual_names RBRACKET            { ns }
+      !!rust{ ns }

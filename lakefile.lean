@@ -112,7 +112,8 @@ def genTargets : Array GenTarget := #[
     outputs := #["test/cedarschema/CedarSchemaVerified.lean",
       "test/cedarschema/CedarSchemaParser.lean", "test/cedarschema/CedarSchemaLexer.lean",
       "test/cedarschema/CedarSchemaLexerRoundtrip.lean",
-      "test/cedarschema/CedarSchemaParserRoundtrip.lean"] },
+      "test/cedarschema/CedarSchemaParserRoundtrip.lean",
+      "test/cedarschema/rust/src/generated.rs"] },
   -- Cedar entities
   { lig := "test/cedarentities/CedarEntities.lig"
     outputs := #["test/cedarentities/CedarEntitiesVerified.lean",
