@@ -1,0 +1,19 @@
+[package]
+name = "cedar-parser-compare"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+# Compares the parsers generated from `test/cedar/cedar.lig` and `test/cedarschema/CedarSchema.lig`
+# with the hand-maintained LALRPOP parsers of cedar-policy-core, on the same files.
+[dependencies]
+cedar-policy-core = "=4.14.0"
+cedar-rust-parser = { path = "../rust" }
+cedarschema-rust-parser = { path = "../../cedarschema/rust" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = 1

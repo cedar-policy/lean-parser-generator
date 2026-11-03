@@ -1,0 +1,17 @@
+[package]
+name = "cedarschema-rust-parser"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+lpg_kernel = { path = "../../../rust/lpg-kernel" }
+# The unescaper cedar-policy-core uses for string literals in schemas.
+rustc-literal-escaper = "=0.0.8"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = 1

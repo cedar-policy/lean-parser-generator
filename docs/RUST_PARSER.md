@@ -186,6 +186,9 @@ Differences from the Lean lexer that remain:
 - `src/main.rs`: benchmark, same corpus and unit as `CedarBench.lean` (one file per
   "policy").
 
+`test/cedarschema/rust` is the analogous crate for `CedarSchema.lig` (`src/cst.rs`, `src/hooks.rs`,
+`src/bin/check.rs`, which prints `ok`, `lex`, `parse` or `check` per file).
+
 ## Measurements
 
 Cedar corpus, 28 files, 49,670 bytes, `cargo build --release` with LTO. Lean numbers
@@ -220,6 +223,13 @@ building tokens takes 4.0 µs of the 4.8, so token construction was not the bott
 until the allocations went; with the allocations gone the loop is bound by the latency of
 the dependent table load (4.2 instructions per cycle, 0.3% branch misses on this corpus).
 Going further would need a different scanner, for example two bytes per step.
+
+## Comparison with cedar-policy-core
+
+`test/cedar/compare` parses the same files with the generated Cedar policy and schema parsers
+and with the parsers of `cedar-policy-core`. The method, the numbers and what the two sides do
+differently are in `test/cedar/README.md` (policies) and `test/cedarschema/README.md`
+(schemas).
 
 ## C99
 
