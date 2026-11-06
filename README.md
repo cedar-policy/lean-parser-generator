@@ -298,7 +298,7 @@ Because `native_decide` runs at the meta phase, a module reduced by a generated 
 
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md) is the practical guide for adding a parser to another Lake package and keeping generated modules up to date.
 
-[`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md) explains the prototype Rust backend (`%option gen_rust`, `--backend rust`): what it generates, how to call it, and how it differs from the Lean lexer and parser. [`docs/RUST_PARSER.md`](docs/RUST_PARSER.md) has its design and the decisions behind it.
+[`docs/RUST_PARSER.md`](docs/RUST_PARSER.md) describes the prototype Rust backend (`%option gen_rust`, `--backend rust`): what it generates, how to call it, how it differs from the Lean lexer and parser, the proofs that relate the two (`%option gen_rust_verif`), what is not proved yet, and the decisions behind the design.
 
 [`test/README.md`](test/README.md) lists the calculator, IMP, and Cedar fixtures, their generated modules, and the commands used to rebuild and test them.
 

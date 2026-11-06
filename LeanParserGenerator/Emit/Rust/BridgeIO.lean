@@ -16,7 +16,7 @@
 
 module
 /-
-Writing the proof package of `%option gen_rust_verif` (docs/RUST_VERIFICATION.md).
+Writing the proof package of `%option gen_rust_verif` (docs/RUST_PARSER.md).
 
 The generator finds the Rust crate of the generated file (the nearest `Cargo.toml`) and asks
 Cargo where its `lpg_kernel` dependency is. The proved kernel is the one in `rust/verif/` next to

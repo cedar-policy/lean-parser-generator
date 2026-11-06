@@ -186,7 +186,7 @@ structure Options where
   /-- The directory of the Lean package that proves the generated Rust equal to the Lean
       lexer and parser, relative to the `.lig`'s directory. Set by
       `%option gen_rust_verif rust_bridge`; needs `gen_rust`, and Charon and Aeneas when the
-      generator writes it (docs/RUST_VERIFICATION.md). -/
+      generator writes it (docs/RUST_PARSER.md). -/
   genRustVerif : Option String := none
   /-- With `gen_rust_verif`: when the proofs do not cover the grammar (a lexer with several
       modes, for example), warn and write no proof package instead of failing. Set by

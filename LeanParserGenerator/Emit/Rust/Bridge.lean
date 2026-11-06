@@ -17,7 +17,7 @@
 module
 /-
 The Lean package that proves a generated Rust lexer and parser equal to the Lean ones
-(`%option gen_rust_verif <dir>`, docs/RUST_VERIFICATION.md).
+(`%option gen_rust_verif <dir>`, docs/RUST_PARSER.md).
 
 This file renders the modules of that package that do not come from Aeneas: the lexer
 certificate (`LexCert`), the parser and lexer proofs (`Proof`, `LexProof`), the root module
