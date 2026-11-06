@@ -122,7 +122,7 @@ The generator infers the outputs from the input path and writes them next to the
 | `%option gen_rust <path>` | file path, relative to the `.lig` file | Also write the Rust parser to `<path>`. Experimental. `--rust-out` overrides it. |
 | `%option gen_rust_verif <dir>` | directory, relative to the `.lig` file | Also write the proof package of the Rust code to `<dir>`. Needs `%option gen_rust`, and the Aeneas tools. Experimental. `--skip-rust-verif` skips it. |
 | `%option rust_verif_optional` | none | With `gen_rust_verif`: a warning, not an error, when the grammar has actions the proof package cannot cover. Experimental. |
-| `%option rust_ctx <type>` | Rust type | The Rust parser passes a context `ctx: &'a <type>` to the `!!rust{…}` actions, for example an arena they allocate the AST from. Experimental, see [`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md). |
+| `%option rust_ctx <type>` | Rust type | The Rust parser passes a context `ctx: &'a <type>` to the `!!rust{…}` actions, for example an arena they allocate the AST from. Experimental, see [`docs/RUST_PARSER.md`](docs/RUST_PARSER.md). |
 | `%option rust_list <path>` | Rust module path | The list type of the macro rules in the Rust parser is `<path>::List<'a, T>`. Needs `rust_ctx`. Experimental. |
 | `%option roundtrip_lexer` | none | Also write `<Base>LexerRoundtrip.lean`. Experimental, see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md). |
 | `%option roundtrip_parser <function>` | Lean function name | Also write `<Base>ParserRoundtrip.lean`. Experimental. |
@@ -310,7 +310,7 @@ This is an alpha release, version 0.1.0-alpha.1. Before 1.0, a minor version may
 | Generated API: `parse`, `tokenize`, `errorMessage`, `diagnose`, and the exported theorems (`parser_sound`, `parser_complete`, `parser_err_free`, `parser_ne_err`, `parser_unambiguous`, `parse_eq_dependent`) | Stable |
 | `%option module_prefix` and `%option compress_tables`, see the [`%option` reference](#option-reference) | Stable |
 | Roundtrip modules (`%option roundtrip_lexer`, `roundtrip_parser`, `roundtrip_format`), see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md) | Experimental |
-| Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`), see [`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md). It has no proofs. | Experimental |
+| Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`), see [`docs/RUST_PARSER.md`](docs/RUST_PARSER.md). The Rust code is not covered by the guarantees of [`docs/GUARANTEES.md`](docs/GUARANTEES.md). `%option gen_rust_verif` proves part of it equal to the Lean parser, and the document lists what is not proved. | Experimental |
 | Language server and VS Code extension, see [`docs/LANGUAGE_SERVER.md`](docs/LANGUAGE_SERVER.md) | Experimental |
 
 ## Further reading
@@ -319,7 +319,7 @@ This is an alpha release, version 0.1.0-alpha.1. Before 1.0, a minor version may
 
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md) explains how to add a parser to another Lake package and keep the generated modules up to date.
 
-[`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md) explains the experimental Rust backend (`%option gen_rust`, `--rust-out`): what it generates, how to call it, and how it differs from the Lean lexer and parser. [`docs/RUST_PARSER.md`](docs/RUST_PARSER.md) has its design and the decisions behind it.
+[`docs/RUST_PARSER.md`](docs/RUST_PARSER.md) describes the experimental Rust backend (`%option gen_rust`, `--rust-out`): what it generates, how to call it, how it differs from the Lean lexer and parser, the proofs that relate the two (`%option gen_rust_verif`), what is not proved yet, and the decisions behind the design.
 
 [`test/README.md`](test/README.md) lists the calculator, IMP, and Cedar fixtures, their generated modules, and the commands used to rebuild and test them.
 

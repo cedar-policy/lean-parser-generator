@@ -9,14 +9,15 @@ Lean throughput benchmark.
 
 `%option gen_rust rust/src/generated.rs` makes the generator write a Rust lexer and parser, and
 the `!!rust{…}` actions build the CST of `rust/src/cst.rs`. `rust/` is a Cargo crate
-(docs/RUST_PARSER.md describes the backend, docs/USING_RUST_GENERATOR.md how to use it):
+(docs/RUST_PARSER.md describes the backend, how to use it, and the proofs):
 
     cd test/cedar/rust && cargo build --release
     ./target/release/check policy.cedar            # ok, lex, or parse <token> <state> <lookahead>
     ./target/release/cedar-rust-parser a.cedar     # benchmark over files
 
 `%option gen_rust_verif rust_bridge` also writes `rust_bridge/`, the Lean package that proves
-the Rust lexer and parser equal to the Lean ones (docs/RUST_VERIFICATION.md).
+the Rust lexer and parser equal to the Lean ones (docs/RUST_PARSER.md, "Proving the Rust code
+equal to the Lean code").
 
 ## Comparison with cedar-policy-core
 

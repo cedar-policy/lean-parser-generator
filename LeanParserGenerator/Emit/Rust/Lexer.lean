@@ -33,8 +33,10 @@ the generated prelude; any other needs a declaration `rust f => path::to::f` in 
 has type `fn(&str) -> Option<T'>` and that of `g : String → Tok` has type
 `fn(&str) -> Option<Tok>`, where `T'` is the Rust type of `T`. `None` means the Lean
 result is not representable in Rust (a numeral beyond `u64`); the lexer then fails at the
-start of the lexeme. The Lean definition stays the
-specification: the verification step relates the two (docs/RUST_PARSER.md).
+start of the lexeme. The Lean definition stays the specification, but nothing checks that
+the Rust counterpart agrees with it: the proof package (`%option gen_rust_verif`) covers
+`lex`, not these functions, and trusts the terminal a `g s` rule computes
+(docs/RUST_PARSER.md, "Remaining gaps").
 Everything else is an error that names the rule.
 
 The generated `Tok` enum has one variant per `%token`, with the Rust type of the

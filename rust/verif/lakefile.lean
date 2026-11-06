@@ -27,7 +27,7 @@ The Rust kernel (`../lpg-kernel`) is translated to Lean by Charon and Aeneas
 checked in, so building this package needs neither tool. It is proved against the Lean runtime
 (`LeanParserGenerator.Runtime`, `LeanParserGenerator.Lexer`) once. A grammar's proof package,
 which `%option gen_rust_verif` writes, requires this one and translates the grammar's crate
-with the kernel as an external dependency (docs/RUST_VERIFICATION.md). -/
+with the kernel as an external dependency (docs/RUST_PARSER.md). -/
 package «LeanParserGeneratorVerif» where
   leanOptions := #[
     ⟨`weak.linter.unusedVariables, false⟩,

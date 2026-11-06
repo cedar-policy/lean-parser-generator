@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Prints the parse tree of a Cedar file as an indented outline, rebuilt from the
-//! postorder trace that `generated::parse` returns. See docs/USING_RUST_GENERATOR.md.
+//! postorder trace that `generated::parse` returns. See docs/RUST_PARSER.md.
 
 use cedar_rust_parser::generated::{nonterm_name, prod_len, prod_lhs, term_name, Node, PROD_FLAG};
 use cedar_rust_parser::Parser;
