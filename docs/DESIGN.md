@@ -242,11 +242,11 @@ One CLI invocation parses and constructs the grammar once, then renders both
 modules from a shared `PreparedGrammar`:
 
 ```sh
-leanparsergenerator Foo.lig FooVerified.lean FooParser.lean
+leanparsergenerator Foo.lig
 ```
 
-Module names default to the two output stems. Explicit
-`--backend verified|executable` remains available for a single output.
+Output names come from the `.lig` stem. `--out-dir` and `--module-prefix` move the
+modules, and `--only verified|parser|lexer|rust` writes a subset.
 
 ### 6.1 Dependent specification module
 
@@ -369,9 +369,8 @@ factor :: Int
   path and its `%option`s: `leanparsergenerator Foo.lig` writes `FooVerified.lean`,
   `FooParser.lean`, `FooLexer.lean` (when a `%lexer` block is present), and
   `FooLexerRoundtrip.lean` (when `%option roundtrip_lexer` is also set) next to the
-  input. Output paths and module names can also be given explicitly
-  (`leanparsergenerator Foo.lig FooVerified.lean FooParser.lean FooLexer.lean`, or
-  `--lexer Foo.lig FooLexer.lean [Module]`). Either way it builds the DFA and
+  input. `--out-dir` and `--module-prefix` override the location and prefix, and
+  `--only lexer` writes just the lexer. It builds the DFA and
   validator certificate offline and writes an inspectable `FooLexer.lean` (§9).
 
 The frontend preserves source spans so future `.lig` diagnostics can map errors

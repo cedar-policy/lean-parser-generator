@@ -21,12 +21,16 @@ that imports them must use the same Lean version.
   code that generated parsers import and link against.
 - Source spans on tokens, `x_span` binders in actions, and generated error
   messages (`errorMessage`, `diagnose`).
+- A command line of the form `leanparsergenerator [options] <input.lig>` with
+  `--out-dir`, `--module-prefix`, `--rust-out`, `--only`, `--help` and `--version`.
+  Exit code 0 means success, 1 an error, and 2 LR(1) conflicts (output is still
+  written). `.lig` syntax errors are reported as `file:line:col`.
 - `--print-grammar bnf|markdown` to render the grammar checked by the proofs.
 - A language server (`lig-language-server`) and a VS Code extension for `.lig`.
 - `%option compress_tables`, which shrinks the emitted executable tables.
 
 ### Experimental
 
-- Roundtrip proofs: `%option roundtrip_lexer`, `roundtrip_parser` and
+- Roundtrip proofs (`docs/ROUNDTRIP.md`): `%option roundtrip_lexer`, `roundtrip_parser` and
   `roundtrip_format`. Their output and options may change between releases.
-- Rust backend (`%option gen_rust`, `--backend rust`). It has no proofs.
+- Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`). It has no proofs.

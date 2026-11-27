@@ -4,7 +4,21 @@
 
 The generated parser is meant to be used as ordinary compiled Lean code. Alongside it, `lean-parser-generator` emits a dependent specification of the same grammar and a collection of certificates. Lean checks these certificates and proves that the parser agrees with the dependent specification. The construction of the LR(1) automaton and the code generator themselves do not have to be trusted.
 
-This follows the a-posteriori validation architecture described in [Validating LR(1) Parsers](https://xavierleroy.org/publi/validated-parser.pdf), which Menhir's verified back end also uses. The implementation here uses Pager's LR(1) construction and a small Lean runtime.
+This follows the a-posteriori validation architecture described in [Validating LR(1) Parsers](https://xavierleroy.org/publi/validated-parser.pdf), which Menhir's verified back end also uses. The implementation here uses Pager's LR(1) construction and a small Lean runtime. [`docs/GUARANTEES.md`](docs/GUARANTEES.md) lists what Lean proves about a generated parser and what the proofs assume.
+
+## Status
+
+This is version 0.1.0. Before 1.0, a minor version may change a stable interface, and [`CHANGELOG.md`](CHANGELOG.md) will say so. Experimental interfaces may change or disappear in any release.
+
+| Interface | Status |
+|---|---|
+| Command line: `leanparsergenerator [options] <input.lig>`, its flags and exit codes | Stable |
+| `.lig` directives, grammar rules, semantic actions, and the `%lexer` block | Stable |
+| Generated API: `parse`, `run`, `tokenize`, `errorMessage`, `diagnose`, and the exported theorems (`parser_sound`, `parser_complete`, `parser_err_free`, `parser_ne_err`, `parser_unambiguous`, `parse_eq_dependent`) | Stable |
+| `%option module_prefix` and `%option compress_tables` | Stable |
+| Roundtrip modules (`%option roundtrip_lexer`, `roundtrip_parser`, `roundtrip_format`), see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md) | Experimental |
+| Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`), see [`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md). It has no proofs. | Experimental |
+| Language server and VS Code extension, see [`docs/LANGUAGE_SERVER.md`](docs/LANGUAGE_SERVER.md) | Experimental |
 
 ## Requirements
 
@@ -12,7 +26,7 @@ Lean 4.36.0 and Lake 5.0.0, as pinned in `lean-toolchain`. Install them with [el
 
 ## A first parser
 
-We show how to use `lean-parser-generator` with a small example. Suppose that we want to parser sums of natural numbers. We begin by writing an ordinary Lean module that describes that the parser should produce (an abstract syntax tree `Ast`), in `MyProject/ExprAst.lean`:
+We show how to use `lean-parser-generator` with a small example. Suppose that we want to parse sums of natural numbers. We begin by writing an ordinary Lean module that defines what the parser should produce (an abstract syntax tree `Ast`), in `MyProject/ExprAst.lean`:
 
 ```lean
 module
@@ -38,7 +52,7 @@ open Expr
 %option module_prefix MyProject
 ```
 
-Next, the user has a choice: they have either defined a token type and a lexer outside the `.lig` definition, and in that case, this should be handled through the imports in the `%header`. Usually, one also want to define tokens and lexing at the same time as defining the grammar. `lean-parser-generator` looks for a `%lexer {...}` block in the `.lig` file to generate a lexer:
+Next, there is a choice. Either the token type and the lexer are defined outside the `.lig` file, in which case the `%header` imports them, or they are defined in the `.lig` file together with the grammar, which is the usual case. `lean-parser-generator` looks for a `%lexer {...}` block in the `.lig` file to generate a lexer:
 ```text
 %tokentype Tok
 %token <Nat> NUM
@@ -53,7 +67,7 @@ Next, the user has a choice: they have either defined a token type and a lexer o
   eof => { Tok.EOF }
 }
 ```
-One `%tokentype` declaration and a few `%token` definition precede the `%lexer` block itself. The type of the tokens is generated from the `%tokentype` and `%token` declarations, and then the generated type can be used (as `<token type>.<token kind>`) inside the lexer definition.
+One `%tokentype` declaration and a few `%token` declarations precede the `%lexer` block itself. The type of the tokens is generated from the `%tokentype` and `%token` declarations, and then the generated type can be used (as `<token type>.<token kind>`) inside the lexer definition.
 
 The body of the `%lexer` block is a list of rules. A `let` line names a regular expression so that rules can reuse it (`digit` above). Each rule has the form `| regex => action`. A regex is built from quoted strings, character classes (`['0'-'9']`, or `[^ '\n']` for the complement), sequencing, alternation with `|`, grouping with parentheses, and the postfix operators `*` and `+`. Writing `as s` after a regex binds the matched text to `s`, a `String`. The action is either `skip`, which discards the match (whitespace and comments), or a Lean expression that builds a token. The lexer takes the longest match at each position, and a tie goes to the earlier rule. The `eof` rule gives the token that ends the stream. The full syntax, including lexer modes and the remaining regex operators, is in [DESIGN §8](docs/DESIGN.md) and [`docs/LEXER.md`](docs/LEXER.md).
 
@@ -108,14 +122,32 @@ lake build leanparsergenerator
 lake exe leanparsergenerator MyProject/Expr.lig
 ```
 
-The generator infers the outputs from the input path, writing next to the `.lig` file. For our example, it writes `MyProject/ExprVerified.lean`, `MyProject/ExprParser.lean`, and `MyProject/ExprLexer.lean` (the last one because the grammar has a `%lexer` block). The base name comes from the `.lig` stem (`Expr.lig` → `Expr`), so a grammar file named in the CamelCase you want for the modules produces those module names directly.
+The generator infers the outputs from the input path and writes them next to the `.lig` file. For our example, it writes `MyProject/ExprVerified.lean`, `MyProject/ExprParser.lean`, and `MyProject/ExprLexer.lean` (the last one because the grammar has a `%lexer` block). The base name comes from the `.lig` stem (`Expr.lig` → `Expr`), so a grammar file named in the CamelCase you want for the modules produces those module names directly.
 
-The outputs can be controlled by different `%option` directives in the `.lig` file:
-- `%option module_prefix <path>` is the dotted prefix the modules live under inside a larger module tree — with `%option module_prefix myproject.expr` the parser imports its lexer as `myproject.expr.ExprLexer` and a caller imports `myproject.expr.ExprParser`; without it the modules are top-level.
+`%option module_prefix <path>` in the `.lig` file is the dotted prefix the modules live under inside a larger module tree. With `%option module_prefix myproject.expr` the parser imports its lexer as `myproject.expr.ExprLexer` and a caller imports `myproject.expr.ExprParser`. Without it the modules are top-level.
 
-- `%option roundtrip_lexer`, `%option roundtrip_parser <unparse>`, and `%option roundtrip_format <renderTok>` generate extra proof modules. They are experimental. They are not needed to get a working parser, and they are described in "Roundtrip proofs (experimental)" below.
+### Command line reference
 
-Alternatively, the command line can spell out each output path, module name, and import path. This is useful when the generated files must live apart from the `.lig` file. [`docs/INTEGRATION.md`](docs/INTEGRATION.md) shows the complete form.
+```text
+leanparsergenerator [options] <input.lig>
+leanparsergenerator --print-grammar bnf|markdown <input.lig>
+leanparsergenerator --rust-report [-v] <input.lig>
+leanparsergenerator --help | --version
+```
+
+| Option | Effect |
+|---|---|
+| `--out-dir <dir>` | Write the Lean modules to `<dir>` instead of next to the `.lig` file. Use it when the generated files must live apart from the grammar. |
+| `--module-prefix <path>` | Dotted module prefix of the generated modules. Overrides `%option module_prefix`. |
+| `--rust-out <file>` | Also write the Rust parser to `<file>`. Overrides `%option gen_rust`. Experimental. |
+| `--only <output>` | Write only this output: `verified`, `parser`, `lexer`, or `rust`. Repeat the flag to select several. Roundtrip modules are written only without `--only`. |
+| `--print-grammar bnf\|markdown` | Print the grammar that the proofs are about. Writes no files. See [`docs/GUARANTEES.md`](docs/GUARANTEES.md). |
+| `--rust-report [-v]` | Report which semantic actions the Rust backend can emit. Writes no files. Experimental. |
+| `-h`, `--help`, `--version` | Show the usage text or the version. |
+
+The exit code is 0 on success. It is 1 on any error: bad arguments, an input file that cannot be read, a `.lig` syntax error, or a failure during generation. Syntax errors are reported as `file:line:col: parse error: …`. It is 2 when Pager reports LR(1) conflicts. In that case the conflicts are printed to standard error and the requested output is still written, so a build script that wants conflicts to fail the build must treat 2 as failure.
+
+[`docs/INTEGRATION.md`](docs/INTEGRATION.md) shows how to call the generator from a Lake target. `%option roundtrip_lexer`, `roundtrip_parser`, and `roundtrip_format` add experimental proof modules; they are not needed to get a working parser and are described in [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md).
 
 Application code imports the generated parser and lexer and calls `parse` on the tokens produced by the lexer:
 
@@ -128,6 +160,8 @@ def parseExpr (source : String) : Except Lexer.LexError (Option Expr.Ast) := do
   pure (ExprParser.parse tokens)
 ```
 
+`tokenize` returns `.error` when no lexer rule matches at some position. The `Lexer.LexError` carries the character offset (`pos`) of the failure and the offending character (`char`, or `none` at the end of input).
+
 `ExprParser` already imports `ExprLexer` for the token type, so a caller that only needs `parse` can import `ExprParser` alone. When the lexer is hand-written, the caller should import the application's own token module and lexer instead.
 
 `parse` returns `some value` when the input is accepted and `none` otherwise. The optional logarithmic-fuel argument, whose default is `20`, controls the maximum number of parser steps; a value `n` permits up to `2^n` steps.
@@ -138,7 +172,7 @@ Sometimes an application must distinguish a syntax error from fuel exhaustion, o
 ExprParser.run tokens
 ```
 
-Its result distinguishes `.ok`, `.reject`, `.timeout`, and `.err`. Lean proves the `.err` case unreachable. The theorem is `ExprVerified.parser_ne_err`, in the generated specification module (`import MyProject.ExprVerified`). [Proven parser properties](#proven-parser-properties) below explains this and the other guarantees.
+Its result distinguishes `.ok`, `.reject`, `.timeout`, and `.err`. Lean proves the `.err` case unreachable. The theorem is `ExprVerified.parser_ne_err`, in the generated specification module (`import MyProject.ExprVerified`). [`docs/GUARANTEES.md`](docs/GUARANTEES.md) explains this and the other guarantees.
 
 The parser treats a finite list as an EOF-padded stream. Thus a lexer may append the declared EOF token—as the lexer above does—and exhausted input is also padded with that same token.
 
@@ -179,8 +213,8 @@ to build your own message. This diagnostic layer is unverified, but proved
 consistent with the verified engine (`diagnose_run_agrees`); see
 [`docs/ERROR_MESSAGES.md`](docs/ERROR_MESSAGES.md). The parser theorem itself is
 unchanged: spans ride in the executable parser's value and are erased on the
-dependent side, so the soundness, completeness, and error-freedom results below
-are exactly as before.
+dependent side, so the soundness, completeness, and error-freedom results in
+[`docs/GUARANTEES.md`](docs/GUARANTEES.md) are exactly as before.
 
 ## Putting a generated parser in an existing project
 
@@ -226,88 +260,13 @@ Both modules are generated from one prepared grammar and one Pager construction.
 They should be generated together, and generated source should not be edited by
 hand.
 
-## Proven Parser Properties
-
-The claims are about the exact `Grammar` found in the generated specification module. For that grammar, Lean proves the following facts.
-
-If `ExprParser.parse` returns a semantic value, `parser_sound` supplies a parse tree, connected to the input stream, whose semantics is that value. The theorem `parser_err_free`—or its equality-shaped companion `parser_ne_err`—states that `ExprParser.run` cannot encounter an internal inconsistency in the generated tables.
-
-In the other direction, `parser_complete` says that a supplied start parse tree is accepted whenever the logarithmic fuel bound covers the size of the tree. The type `ParserStartTree` is rooted at the augmented start symbol `S'`, so its word includes EOF. Finally, `parser_unambiguous` says that two start parse trees for the same token word have equal semantics.
-
-These corollaries are exported directly by the specification module (e.g. `ExprVerified`):
-
-```text
-parser_sound
-parser_err_free
-parser_ne_err
-parser_complete
-parser_unambiguous
-parse_eq_dependent
-```
-
-A caller does not have to assemble a validator proof or a refinement witness. The lower-level declarations remain available for developments that need them.
-
-There are two important boundaries to keep in mind.
-First, the `.lig` frontend is unverified: the theorems and proofs are for the emitted Lean grammar, not the author's intention for the source file. This mismatch is alleviated by the fact that `lean-parser-generator`'s parser is itself proven correct using itself.
-Second, the parser theorem begins with tokens, not characters: the lexer has its own separate maximal-munch soundness against its emitted DFA tables (validated by `native_decide`, see the design's lexer section), but that guarantee is not yet threaded into the parser theorem, and the bytes-to-characters decoding layer and the `lexre` regex frontend remain unverified.
-
-## Looking at the grammar that was checked
-
-Generated dependent definitions are precise, but a large match over `Fin` indices is not pleasant to audit. Every specification module therefore exports `verifiedGrammarView` together with `verifiedGrammarView_agrees`.
-
-The view records terminals, nonterminals, semantic type names, `$`, `S'`, the start and EOF mappings, and every production in source order. Semantic actions are rendered in a compact form, while a comment points to the actual generated Lean declaration used by the grammar:
-
-```bnf
-[0] expr ::= lhs:expr PLUS rhs:atom    { Ast.add lhs rhs }  -- semanticAction0
-```
-
-The view can be read in the generated source, or rendered as BNF or Markdown:
-
-```sh
-lake exe leanparsergenerator --print-grammar bnf MyProject/Expr.lig
-lake exe leanparsergenerator --print-grammar markdown MyProject/Expr.lig
-```
-
-Names, binders, type strings, and action strings in the view are for reading only, and Lean does not check them. What Lean checks is the shape of the grammar: `verifiedGrammarView_agrees` proves that the view has the same terminals, nonterminals, start symbol, and productions as the grammar the theorems are about. For what an action does, read the `semanticActionN` declaration named in the comment.
-
-## Roundtrip proofs (experimental)
-
-These options generate extra modules for printer inverses. They are experimental and are not needed to use the parser.
-
-- `%option roundtrip_lexer` generates `<Base>LexerRoundtrip.lean`. A handwritten `<Base>LexerRoundtripSupport.lean` supplies `renderTok : Tok → String`. The generated `render_roundtrip` theorem is universal over arbitrary lists whose elements satisfy the decidable `RoundtrippableTok` predicate. The predicate checks that the rendered lexeme wins maximal munch, emits the same token, and is separated by a skipped space. The current generator accepts only single-mode lexers whose actions all stay in that mode. See [`docs/LEXER.md`](docs/LEXER.md).
-- `%option roundtrip_parser <unparse>` generates source-order token/production tree helpers in `<Base>Verified.lean` and a generic `Certificate`/`parse_certificate` theorem in `<Base>ParserRoundtrip.lean`. The user writes `<Base>Unparse.lean` and a separate proof that builds certificates for the intended printable domain. After a grammar change, regenerate first, then update that proof if production helpers changed.
-- `%option roundtrip_format <renderTok>` adds the corpus-independent `format`, `relex`, and `fullRoundtrip` definitions to the parser roundtrip module. A handwritten theorem can combine the universal lexer result with a parser inverse theorem.
-
-The generated modules contain no sample corpus, coverage summary, `guarantees` string, or `#eval` output.
-
-## The trust boundary
-
-We reiterate and emphasize what assumptions we make when we claim "generated parsers are proven valid".
-
-Pager construction and code emission are untrusted computations. Their output must satisfy Boolean safety, completeness, grammar-view, and structural refinement checks. If a table is corrupted, or if a generated semantic dispatcher no longer agrees with the dependent action, Lean cannot construct the refinement witness.
-
-Large generated checks are discharged with `native_decide`; this is what makes Cedar-sized tables practical to compile. Using `native_decide` trusts evaluation by Lean's native compiler. Kernel-checked linking theorems turn the resulting Boolean equalities into the parser guarantees described above.
-
-The generic proofs contain no `sorry`, custom axioms, or `Classical.choice`.
-
-## The module system
-
-The library and every generated module use Lean's module system. Each file has a `module` header and imports are `public import`. Generated code draws a deliberate boundary between its public API and its internals:
-
-- A generated parser exposes its value type, `run`, and `parse`. Its LR tables, `decode`, and `sem` are internal — a caller that `import`s the parser sees only the API. The paired specification module reaches those internals with `import all` (same package) for its refinement proofs.
-- A generated lexer exposes the token type and `tokenize`/`tokenizeByte`; the DFA tables and validator certificates are internal.
-- The specification module is exposed in full, because its grammar, automaton, dependent types, and the exported corollaries are the API that proofs use.
-
-Because `native_decide` runs at the meta phase, a module reduced by a generated `native_decide` certificate is also `meta import`ed. None of this changes the trust boundary or the axiom budget; the certificates still depend only on `propext`, `Classical.choice`, `Quot.sound`, and their own `native_decide` axioms.
-[`docs/DESIGN.md` §16.2](docs/DESIGN.md) describes the design in full.
-
 ## Further reading
 
-[`docs/DESIGN.md`](docs/DESIGN.md) describes the architecture, runtime invariants, `.lig` syntax, validation algorithms, refinement proof, and inspectable grammar view in detail.
+[`docs/GUARANTEES.md`](docs/GUARANTEES.md) states what is proved, how to read the checked grammar, the trust boundary, and how the module system affects the generated API. [`docs/DESIGN.md`](docs/DESIGN.md) describes the architecture, runtime invariants, `.lig` syntax, validation algorithms, refinement proof, and inspectable grammar view in detail.
 
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md) is the practical guide for adding a parser to another Lake package and keeping generated modules up to date.
 
-[`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md) explains the prototype Rust backend (`%option gen_rust`, `--backend rust`): what it generates, how to call it, and how it differs from the Lean lexer and parser. [`docs/RUST_PARSER.md`](docs/RUST_PARSER.md) has its design and the decisions behind it.
+[`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md) explains the prototype Rust backend (`%option gen_rust`, `--rust-out`): what it generates, how to call it, and how it differs from the Lean lexer and parser. [`docs/RUST_PARSER.md`](docs/RUST_PARSER.md) has its design and the decisions behind it.
 
 [`test/README.md`](test/README.md) lists the calculator, IMP, and Cedar fixtures, their generated modules, and the commands used to rebuild and test them.
 

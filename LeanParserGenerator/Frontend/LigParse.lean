@@ -38,7 +38,7 @@ namespace Frontend
 def parseLigGen (input : String) (_fileName : String := "<lig>") :
     Except String Surface := do
   let toks ← LigLexer.tokenize input
-  match LeanParserGenerator.Frontend.Generated.LigParser.parse
+  match LigParser.parse
       (toks.map Runtime.Positioned.dummy) with
   | some res => res
   | none => .error "lig parse error (generated LigParser rejected the token stream)"

@@ -140,27 +140,22 @@ This writes `MyProject/Generated/ExprVerified.lean`, `ExprParser.lean`, and
 import it as `MyProject.Generated.ExprLexer`). The base
 name is the `.lig` stem, so name the file in the CamelCase you want for the modules.
 
-Alternatively, when the generated files must live apart from the `.lig`, the
-command line can spell out every output path, module name, and the parser's import
-path:
+Alternatively, when the generated files must live apart from the `.lig`, name the
+output directory and the module prefix on the command line. Both override the
+`.lig`'s location and `%option module_prefix`:
 
 ```sh
 lake exe leanparsergenerator \
-  grammar/Expr.lig \
-  MyProject/Generated/ExprVerified.lean \
-  MyProject/Generated/ExprParser.lean \
-  MyProject.Generated.ExprVerified \
-  MyProject.Generated.ExprParser \
-  MyProject.Generated.ExprParser \
-  MyProject/Generated/ExprLexer.lean \
-  ExprLexer \
-  MyProject.Generated.ExprLexer
+  --out-dir MyProject/Generated \
+  --module-prefix MyProject.Generated \
+  grammar/Expr.lig
 ```
 
-The last three arguments are the lexer output path, its module name (used as the
-def prefix), and its dotted import path (which the parser modules import for the
-token type). Omit them for a hand-written-lexer grammar. Generated files should not
-be edited manually.
+This writes the same three modules into `MyProject/Generated/`. Run
+`leanparsergenerator --help` for the other flags: `--only` limits the output to some
+of the modules, and `--rust-out` writes the Rust parser. The exit code is 0 on
+success, 1 on any error, and 2 when Pager reports LR(1) conflicts (the files are
+still written). Generated files should not be edited manually.
 
 Application code normally imports the lexer and parser only:
 
@@ -249,18 +244,14 @@ target generatedExprParser (pkg : NPackage __name__) : Unit := do
             lexerTime < inputTime || lexerTime < generatorTime)
 
       if regenerate then
-        -- Explicit arguments: the outputs live in `MyProject/Generated/`, apart
-        -- from the `.lig` in `grammar/`. If instead the `.lig` sits with its
-        -- outputs and carries `%option module_prefix MyProject.Generated`, this is
-        -- just `args := #[ligPath.toString]`.
+        -- The outputs live in `MyProject/Generated/`, apart from the `.lig` in
+        -- `grammar/`. If instead the `.lig` sits with its outputs and carries
+        -- `%option module_prefix MyProject.Generated`, this is just
+        -- `args := #[ligPath.toString]`.
         let output ← IO.Process.output {
           cmd := exeFile.toString
-          args := #[ligPath.toString, verifiedPath.toString, parserPath.toString,
-            "MyProject.Generated.ExprVerified",
-            "MyProject.Generated.ExprParser",
-            "MyProject.Generated.ExprParser",
-            lexerPath.toString, "MyProject.Generated.ExprLexer",
-            "MyProject.Generated.ExprLexer"]
+          args := #["--out-dir", "MyProject/Generated",
+            "--module-prefix", "MyProject.Generated", ligPath.toString]
           cwd := pkg.dir }
         if output.exitCode != 0 then
           error s!"parser generation failed:\n{output.stderr}"

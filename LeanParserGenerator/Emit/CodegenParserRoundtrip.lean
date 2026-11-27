@@ -22,7 +22,7 @@ Separate from `Emit/Codegen.lean` for the same reason the lexer roundtrip backen
 is separate from the lexer backend: the parser module (`FooParser.lean`) is emitted
 for every grammar, but the parser roundtrip module (`FooParserRoundtrip.lean`) is
 only emitted when the user asks for it (`%option roundtrip_parser <unparse>` / the
-`--roundtrip-parser` CLI mode / the `parsers` Lake target's roundtrip step). The
+default CLI invocation / the `parsers` Lake target). The
 opt-in generation lives in its own file so that boundary is explicit.
 
 The parser roundtrip is a token-generation inverse. The user supplies

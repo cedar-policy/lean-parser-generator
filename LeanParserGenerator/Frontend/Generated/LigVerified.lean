@@ -43,7 +43,7 @@ set_option maxRecDepth 1000000
 
 set_option maxHeartbeats 40000000
 
-namespace LeanParserGenerator.Frontend.Generated.LigVerified
+namespace LigVerified
 
 abbrev Terminal := Fin 18
 
@@ -149,7 +149,7 @@ def verifiedGrammarView : Runtime.VerifiedGrammarView :=
     augmentedNonterminal := 11
     augmentedProduction := 27 }
 
-def semTbl : List (Σ T : Type, T → LeanParserGenerator.Frontend.Generated.LigParser.VP) := [
+def semTbl : List (Σ T : Type, T → LigParser.VP) := [
   ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
   ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
   ⟨(String : Type), fun v => (Runtime.Span.dummy, .v11 v)⟩,
@@ -181,7 +181,7 @@ def semTbl : List (Σ T : Type, T → LeanParserGenerator.Frontend.Generated.Lig
   ⟨(Frontend.Elem : Type), fun v => (Runtime.Span.dummy, .v10 v)⟩,
   ⟨(Frontend.LigResult : Type), fun v => (Runtime.Span.dummy, .v0 v)⟩]
 
-def semDefault : Σ T : Type, T → LeanParserGenerator.Frontend.Generated.LigParser.VP := ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩
+def semDefault : Σ T : Type, T → LigParser.VP := ⟨(Unit : Type), fun v => (Runtime.Span.dummy, .unit v)⟩
 
 def symIdx : Symbol Terminal NonTerminal → Nat
   | .T t => t.val
@@ -846,201 +846,201 @@ def parse (input : List LigTok) (logNSteps : Nat := 40) : Option Frontend.LigRes
   | .Parsed r _ => some r
   | _ => none
 
-def refinementEncodeValue (s : Symbol Terminal NonTerminal) (v : semT' s) : LeanParserGenerator.Frontend.Generated.LigParser.VP :=
+def refinementEncodeValue (s : Symbol Terminal NonTerminal) (v : semT' s) : LigParser.VP :=
   (semTbl.getD (symIdx s) semDefault).2 v
 
 theorem refinementSemanticAgrees0 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨0, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 0 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 0 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨0, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨0, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.cons _ (.nil))) => rfl
 
 theorem refinementSemanticAgrees1 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨1, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 1 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 1 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨1, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨1, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees2 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨2, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 2 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 2 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨2, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨2, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees3 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨3, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 3 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 3 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨3, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨3, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees4 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨4, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 4 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 4 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨4, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨4, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees5 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨5, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 5 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 5 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨5, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨5, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees6 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨6, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 6 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 6 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨6, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨6, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees7 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨7, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 7 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 7 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨7, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨7, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees8 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨8, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 8 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 8 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨8, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨8, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees9 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨9, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 9 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 9 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨9, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨9, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.cons _ (.nil))) => rfl
 
 theorem refinementSemanticAgrees10 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨10, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 10 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 10 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨10, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨10, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees11 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨11, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 11 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 11 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨11, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨11, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees12 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨12, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 12 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 12 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨12, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨12, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees13 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨13, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 13 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 13 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨13, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨13, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees14 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨14, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 14 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 14 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨14, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨14, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees15 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨15, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 15 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 15 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨15, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨15, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees16 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨16, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 16 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 16 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨16, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨16, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees17 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨17, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 17 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 17 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨17, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨17, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees18 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨18, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 18 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 18 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨18, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨18, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.cons _ (.cons _ (.nil)))) => rfl
 
 theorem refinementSemanticAgrees19 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨19, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 19 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 19 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨19, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨19, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees20 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨20, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 20 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 20 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨20, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨20, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees21 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨21, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 21 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 21 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨21, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨21, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.cons _ (.nil))) => rfl
 
 theorem refinementSemanticAgrees22 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨22, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 22 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 22 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨22, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨22, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees23 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨23, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 23 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 23 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨23, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨23, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
 
 theorem refinementSemanticAgrees24 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨24, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 24 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 24 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨24, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨24, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees25 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨25, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 25 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 25 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨25, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨25, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.cons _ (.nil))) => rfl
 
 theorem refinementSemanticAgrees26 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨26, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 26 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 26 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨26, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨26, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.nil) => rfl
 
 theorem refinementSemanticAgrees27 :
     ∀ (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' (⟨27, of_decide_eq_true rfl⟩ : Production))),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem 27 (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem 27 (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' (⟨27, of_decide_eq_true rfl⟩ : Production)))
           (values.apply (prodAction' (⟨27, of_decide_eq_true rfl⟩ : Production)))
   | .cons _ (.cons _ (.nil)) => rfl
@@ -1048,7 +1048,7 @@ theorem refinementSemanticAgrees27 :
 theorem refinementSemanticAgrees :
     ∀ (production : Production)
       (values : Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' production)),
-      LeanParserGenerator.Frontend.Generated.LigParser.table.sem production.val (values.encode refinementEncodeValue).reverse =
+      LigParser.table.sem production.val (values.encode refinementEncodeValue).reverse =
         refinementEncodeValue (.NT (prodLhs' production))
           (values.apply (prodAction' production))
   | ⟨0, _⟩, values => refinementSemanticAgrees0 values
@@ -1107,19 +1107,19 @@ def refinementGoto (state : St) (nonterminal : NonTerminal) : Option Nat :=
 
 def refinementDefaultCheck : Bool :=
   (Finite.all (α := St)).all fun state =>
-    decide (LeanParserGenerator.Frontend.Generated.LigParser.table.defaultReduce (refinementStateIndex state) = refinementDefault state)
+    decide (LigParser.table.defaultReduce (refinementStateIndex state) = refinementDefault state)
 
 theorem refinementDefaultCheck_ok : refinementDefaultCheck = true := by native_decide
 
 theorem refinementDefaultAgrees (state : St) :
-    LeanParserGenerator.Frontend.Generated.LigParser.table.defaultReduce (refinementStateIndex state) = refinementDefault state := by
+    LigParser.table.defaultReduce (refinementStateIndex state) = refinementDefault state := by
   exact of_decide_eq_true ((List.all_eq_true.mp refinementDefaultCheck_ok) state (Finite.mem_all state))
 
 def refinementLookaheadCheck : Bool :=
   (Finite.all (α := St)).all fun state => match actionTable' state with
     | .DefaultReduce _ => true
     | .Lookahead _ => (Finite.all (α := Terminal)).all fun terminal =>
-      decide (LeanParserGenerator.Frontend.Generated.LigParser.table.action (refinementStateIndex state) terminal.val =
+      decide (LigParser.table.action (refinementStateIndex state) terminal.val =
         refinementLookahead state terminal)
 
 theorem refinementLookaheadCheck_ok : refinementLookaheadCheck = true := by native_decide
@@ -1127,7 +1127,7 @@ theorem refinementLookaheadCheck_ok : refinementLookaheadCheck = true := by nati
 theorem refinementLookaheadAgrees (state : St)
     (actions : (terminal : Terminal) → LookaheadAction NonInitState lastSymb' terminal)
     (haction : actionTable' state = .Lookahead actions) (terminal : Terminal) :
-    LeanParserGenerator.Frontend.Generated.LigParser.table.action (refinementStateIndex state) terminal.val =
+    LigParser.table.action (refinementStateIndex state) terminal.val =
       refinementLookahead state terminal := by
   have states := (List.all_eq_true.mp refinementLookaheadCheck_ok) state (Finite.mem_all state)
   rw [haction] at states
@@ -1136,25 +1136,25 @@ theorem refinementLookaheadAgrees (state : St)
 def refinementGotoCheck : Bool :=
   (Finite.all (α := St)).all fun state =>
     (Finite.all (α := NonTerminal)).all fun nonterminal =>
-      decide (LeanParserGenerator.Frontend.Generated.LigParser.table.goto (refinementStateIndex state) nonterminal.val =
+      decide (LigParser.table.goto (refinementStateIndex state) nonterminal.val =
         refinementGoto state nonterminal)
 
 theorem refinementGotoCheck_ok : refinementGotoCheck = true := by native_decide
 
 theorem refinementGotoAgrees (state : St) (nonterminal : NonTerminal) :
-    LeanParserGenerator.Frontend.Generated.LigParser.table.goto (refinementStateIndex state) nonterminal.val =
+    LigParser.table.goto (refinementStateIndex state) nonterminal.val =
       refinementGoto state nonterminal := by
   have states := (List.all_eq_true.mp refinementGotoCheck_ok) state (Finite.mem_all state)
   exact of_decide_eq_true ((List.all_eq_true.mp states) nonterminal (Finite.mem_all nonterminal))
 
 def refinementProductionCheck : Bool :=
   (Finite.all (α := Production)).all fun production =>
-    decide (LeanParserGenerator.Frontend.Generated.LigParser.table.prodLhs production.val = (prodLhs' production).val) &&
-    decide (LeanParserGenerator.Frontend.Generated.LigParser.table.prodRhsLen production.val = (prodRhsRev' production).length)
+    decide (LigParser.table.prodLhs production.val = (prodLhs' production).val) &&
+    decide (LigParser.table.prodRhsLen production.val = (prodRhsRev' production).length)
 
 theorem refinementProductionCheck_ok : refinementProductionCheck = true := by native_decide
 
-def refinementStructuralCheck (candidate : Runtime.Exec.ExecTable LeanParserGenerator.Frontend.Generated.LigParser.VP) : Bool :=
+def refinementStructuralCheck (candidate : Runtime.Exec.ExecTable LigParser.VP) : Bool :=
   decide (candidate.startState = 0) &&
   ((Finite.all (α := St)).all fun state =>
     decide (candidate.defaultReduce (refinementStateIndex state) = refinementDefault state) &&
@@ -1171,31 +1171,31 @@ def refinementStructuralCheck (candidate : Runtime.Exec.ExecTable LeanParserGene
     decide (candidate.prodLhs production.val = (prodLhs' production).val) &&
     decide (candidate.prodRhsLen production.val = (prodRhsRev' production).length))
 
-theorem refinementStructuralCheck_ok : refinementStructuralCheck LeanParserGenerator.Frontend.Generated.LigParser.table = true := by
+theorem refinementStructuralCheck_ok : refinementStructuralCheck LigParser.table = true := by
   native_decide
 
 theorem refinementProductionLhsAgrees (production : Production) :
-    LeanParserGenerator.Frontend.Generated.LigParser.table.prodLhs production.val = (prodLhs' production).val := by
+    LigParser.table.prodLhs production.val = (prodLhs' production).val := by
   have checked := (List.all_eq_true.mp refinementProductionCheck_ok) production (Finite.mem_all production)
   simp only [Bool.and_eq_true] at checked
   exact of_decide_eq_true checked.1
 
 theorem refinementProductionLengthAgrees (production : Production) :
-    LeanParserGenerator.Frontend.Generated.LigParser.table.prodRhsLen production.val = (prodRhsRev' production).length := by
+    LigParser.table.prodRhsLen production.val = (prodRhsRev' production).length := by
   have checked := (List.all_eq_true.mp refinementProductionCheck_ok) production (Finite.mem_all production)
   simp only [Bool.and_eq_true] at checked
   exact of_decide_eq_true checked.2
 
 theorem refinementDecodeAgrees (token : grammarInst.Token) :
-    LeanParserGenerator.Frontend.Generated.LigParser.decode ⟨token, Runtime.Span.dummy⟩ =
+    LigParser.decode ⟨token, Runtime.Span.dummy⟩ =
       (refinementTerminalIndex (tokenTerm' token),
         refinementEncodeValue (.T (tokenTerm' token)) (tokenSem' token)) := by
   cases token <;> rfl
 
 def executableRefinement : Runtime.Refinement.ExecRefinement (G := grammarInst)
-    (A := automatonInst) LeanParserGenerator.Frontend.Generated.LigParser.VP := {
-  table := LeanParserGenerator.Frontend.Generated.LigParser.table
-  decode := fun t => LeanParserGenerator.Frontend.Generated.LigParser.decode ⟨t, Runtime.Span.dummy⟩
+    (A := automatonInst) LigParser.VP := {
+  table := LigParser.table
+  decode := fun t => LigParser.decode ⟨t, Runtime.Span.dummy⟩
   eof := .EOF
   encodeValue := refinementEncodeValue
   stateIndex := refinementStateIndex
@@ -1244,7 +1244,7 @@ def executableRefinement : Runtime.Refinement.ExecRefinement (G := grammarInst)
   semantic_agrees := by
     intro production values
     change Runtime.Refinement.Values (G := grammarInst) (prodRhsRev' production) at values
-    change LeanParserGenerator.Frontend.Generated.LigParser.table.sem production.val (values.encode refinementEncodeValue).reverse =
+    change LigParser.table.sem production.val (values.encode refinementEncodeValue).reverse =
       refinementEncodeValue (.NT (prodLhs' production))
         (values.apply (prodAction' production))
     exact refinementSemanticAgrees production values
@@ -1255,13 +1255,13 @@ theorem parserRunRefines (input : List grammarInst.Token) (logNSteps : Nat) :
       (⟨0, of_decide_eq_true rfl⟩ : InitState)
       (Runtime.parse (⟨0, of_decide_eq_true rfl⟩ : InitState)
         (Runtime.Refinement.listStream executableRefinement input) logNSteps)
-      (LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
-  have hrun : LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps
-      = Runtime.Exec.run LeanParserGenerator.Frontend.Generated.LigParser.table (input.map executableRefinement.decode) logNSteps := by
-    simp only [LeanParserGenerator.Frontend.Generated.LigParser.run]
-    rw [Runtime.Exec.runFast_eq_run LeanParserGenerator.Frontend.Generated.LigParser.stackOps LeanParserGenerator.Frontend.Generated.LigParser.flat LeanParserGenerator.Frontend.Generated.LigParser.fuse
-      LeanParserGenerator.Frontend.Generated.LigParser.termOf LeanParserGenerator.Frontend.Generated.LigParser.valOf LeanParserGenerator.Frontend.Generated.LigParser.stackLawful LeanParserGenerator.Frontend.Generated.LigParser.fuseOK]
-    simp only [LeanParserGenerator.Frontend.Generated.LigParser.table, executableRefinement, List.map_map]
+      (LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
+  have hrun : LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps
+      = Runtime.Exec.run LigParser.table (input.map executableRefinement.decode) logNSteps := by
+    simp only [LigParser.run]
+    rw [Runtime.Exec.runFast_eq_run LigParser.stackOps LigParser.flat LigParser.fuse
+      LigParser.termOf LigParser.valOf LigParser.stackLawful LigParser.fuseOK]
+    simp only [LigParser.table, executableRefinement, List.map_map]
     rfl
   rw [hrun]
   simpa [executableRefinement] using
@@ -1269,15 +1269,15 @@ theorem parserRunRefines (input : List grammarInst.Token) (logNSteps : Nat) :
       (⟨0, of_decide_eq_true rfl⟩ : InitState) input logNSteps
 
 theorem parse_eq_dependent (input : List grammarInst.Token) (logNSteps : Nat) :
-    LeanParserGenerator.Frontend.Generated.LigParser.parse (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = parse input logNSteps := by
+    LigParser.parse (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = parse input logNSteps := by
   have related := parserRunRefines input logNSteps
-  unfold LeanParserGenerator.Frontend.Generated.LigParser.parse parse
+  unfold LigParser.parse parse
   have streamEq : Runtime.Refinement.listStream executableRefinement input = toStream input := rfl
   rw [← streamEq]
   generalize hDep : Runtime.parse (⟨0, of_decide_eq_true rfl⟩ : InitState)
     (Runtime.Refinement.listStream executableRefinement input) logNSteps = dependent
     at related ⊢
-  generalize hExec : LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = executable at related ⊢
+  generalize hExec : LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = executable at related ⊢
   cases related <;> rfl
 
 abbrev ParserStartTree (word : List grammarInst.Token) :=
@@ -1286,7 +1286,7 @@ abbrev ParserStartTree (word : List grammarInst.Token) :=
 
 theorem parser_sound (input : List grammarInst.Token) (logNSteps : Nat)
     (semantic : Frontend.LigResult)
-    (accepted : LeanParserGenerator.Frontend.Generated.LigParser.parse (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = some semantic) :
+    (accepted : LigParser.parse (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = some semantic) :
     ∃ (word : List grammarInst.Token) (tree : ParserStartTree word)
       (rest : Runtime.NatStream grammarInst.Token),
       toStream input = Runtime.NatStream.appList word rest ∧
@@ -1309,17 +1309,17 @@ theorem parser_sound (input : List grammarInst.Token) (logNSteps : Nat)
       exact ⟨word, tree, rest, inputEq, semanticEq.trans valueEq⟩
 
 theorem parser_err_free (input : List grammarInst.Token) (logNSteps : Nat) :
-    Runtime.Exec.ResultErrFree (LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
+    Runtime.Exec.ResultErrFree (LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) := by
   have related := parserRunRefines input logNSteps
   change Runtime.Refinement.ResultRel executableRefinement
     (⟨0, of_decide_eq_true rfl⟩ : InitState)
     (Runtime.parse (⟨0, of_decide_eq_true rfl⟩ : InitState) (toStream input) logNSteps)
-    (LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) at related
+    (LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps) at related
   have dependentFree := Runtime.parse_err_free (G := grammarInst) (A := automatonInst)
     safety (⟨0, of_decide_eq_true rfl⟩ : InitState) (toStream input) logNSteps
   generalize hDependent : Runtime.parse (⟨0, of_decide_eq_true rfl⟩ : InitState)
     (toStream input) logNSteps = dependent at related dependentFree
-  generalize hParser : LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = result at related ⊢
+  generalize hParser : LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = result at related ⊢
   cases related with
   | fail state token => trivial
   | parsed value stream => trivial
@@ -1328,7 +1328,7 @@ theorem parser_err_free (input : List grammarInst.Token) (logNSteps : Nat) :
 
 theorem parser_ne_err (input : List grammarInst.Token) (logNSteps : Nat)
     (message : String) :
-    LeanParserGenerator.Frontend.Generated.LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps ≠ .err message := by
+    LigParser.run (input.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps ≠ .err message := by
   intro isError
   have errorFree := parser_err_free input logNSteps
   rw [isError] at errorFree
@@ -1347,7 +1347,7 @@ theorem toStream_eq_appList (input : List grammarInst.Token) :
 theorem parser_complete {word : List grammarInst.Token}
     (tree : ParserStartTree word) (logNSteps : Nat)
     (fuel : Grammar.ptSize tree ≤ 2 ^ logNSteps) :
-    LeanParserGenerator.Frontend.Generated.LigParser.parse (word.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = some (Grammar.ptSem tree) := by
+    LigParser.parse (word.map (fun t => ⟨t, Runtime.Span.dummy⟩)) logNSteps = some (Grammar.ptSem tree) := by
   rw [parse_eq_dependent]
   unfold parse
   have complete := Runtime.parseComplete (G := grammarInst) (A := automatonInst)
@@ -1369,5 +1369,5 @@ theorem parser_unambiguous {word : List grammarInst.Token}
   exact Runtime.unambiguity (G := grammarInst) (A := automatonInst)
     completeness (⟨0, of_decide_eq_true rfl⟩ : InitState) tree1 tree2
 
-end LeanParserGenerator.Frontend.Generated.LigVerified
+end LigVerified
 
