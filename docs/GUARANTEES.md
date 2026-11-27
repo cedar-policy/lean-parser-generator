@@ -15,9 +15,9 @@ parser_unambiguous
 parse_eq_dependent
 ```
 
-If `ExprParser.parse` returns a value, `parser_sound` gives a parse tree for the input whose semantics is that value. `parser_err_free` and its equality form `parser_ne_err` state that `ExprParser.run` never returns `.err`, the result that would mean the generated tables are inconsistent.
+If `ExprParser.parse` returns a value, `parser_sound` gives a parse tree for the input whose semantics is that value. `parser_err_free` and its equality form `parser_ne_err` state that `ExprParser.run`, the internal function that `parse` is built on, never returns `.err`, the result that would mean the generated tables are inconsistent.
 
-In the other direction, `parser_complete` says that the parser accepts any input that has a start parse tree (`ParserStartTree`), as long as `2 ^ logNSteps` is at least the size of the tree. The type `ParserStartTree` is rooted at the augmented start symbol `S'`, so its word includes EOF. `parser_unambiguous` says that two start parse trees for the same token word have equal semantics. `parse_eq_dependent` says that `ExprParser` and the dependent specification parser return the same result at the same fuel.
+In the other direction, `parser_complete` says that the parser accepts any input that has a start parse tree (`ParserStartTree`), as long as `2 ^ logNSteps` is at least the size of the tree. The README section "Fuel" shows what this means for the size of the input. The type `ParserStartTree` is rooted at the augmented start symbol `S'`, so its word includes EOF. `parser_unambiguous` says that two start parse trees for the same token word have equal semantics. `parse_eq_dependent` says that `ExprParser` and the dependent specification parser return the same result at the same fuel.
 
 A caller does not have to assemble a validator proof or a refinement witness. The lower-level declarations are still available for proofs that need them.
 
@@ -61,7 +61,7 @@ The repository contains no `sorry`. I checked the axioms of the six exported the
 
 The library and every generated module use Lean's module system. Each file has a `module` header, and imports are `public import`. The generated code separates its public API from its internals:
 
-- A generated parser exposes its value type, `run` and `parse`. The LR tables, `decode` and `sem` are internal, so a caller that imports the parser sees only the API. The specification module reaches the internals with `import all`, which is allowed because both modules are in the same package, and uses them in its refinement proofs.
+- A generated parser exposes its value type, `parse`, `diagnose` and `errorMessage`. It also exposes `run`, because the theorems are stated about it, but `run` is not a stable interface. The LR tables, `decode` and `sem` are internal, so a caller that imports the parser sees only the API. The specification module reaches the internals with `import all`, which is allowed because both modules are in the same package, and uses them in its refinement proofs.
 - A generated lexer exposes the token type, `tokenize` and `tokenizeByte`. The DFA tables and validator certificates are internal.
 - The specification module is exposed in full, because its grammar, automaton, dependent types and exported theorems are what proofs use.
 

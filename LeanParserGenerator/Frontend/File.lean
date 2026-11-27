@@ -175,6 +175,14 @@ structure LexerSpec where
   span : Span := Span.dummy
   deriving Repr, Inhabited
 
+/-- Move every span in the lexer block by `off` bytes. The block is scanned as a string
+    of its own, so its spans start at 0 until they are shifted into file offsets. -/
+def LexerSpec.shifted (spec : LexerSpec) (off : Nat) : LexerSpec :=
+  let shift (sp : Span) : Span := ⟨⟨sp.startPos.byteIdx + off⟩, ⟨sp.endPos.byteIdx + off⟩⟩
+  { spec with
+    modes := spec.modes.map fun m =>
+      { m with span := shift m.span, rules := m.rules.map fun r => { r with span := shift r.span } } }
+
 /-- Code-generation options set by `%option <name>` directives in the `.lig`. These
     affect only *how* the modules are emitted (and which ones), never the grammar the
     proofs are about. Unknown option names are rejected by the parser. -/
@@ -709,7 +717,12 @@ def scanEscape : ScanM (Except String Char) := do
       set cur
       if count == 0 then return .error "malformed \\u escape"
       return .ok (Char.ofNat n)
-  | other => return .ok other
+  | other =>
+      -- A backslash before a letter or digit that is not an escape is almost always a
+      -- regex shorthand such as `\d`, which would otherwise silently mean the letter.
+      if other.toNat < 128 && other.isAlphanum then
+        return .error s!"unknown escape `\\{other}`. The escapes are \\n \\t \\r \\0 \\\\ \\\" \\' and \\uXXXX, and a backslash before other punctuation stands for that character. There are no shorthand classes: write a class such as ['0'-'9']"
+      return .ok other
 
 /-- Scan a `'c'` character literal (cursor at the opening quote). -/
 def scanCharLit : ScanM (Except String Char) := do
@@ -770,7 +783,10 @@ def scanClsItem : ScanM (Except String (Nat × Nat)) := do
       set c.next
       match ← scanCharLit with
       | .error e => return .error e
-      | .ok hi => return .ok (lo.toNat, hi.toNat)
+      | .ok hi =>
+        if lo.toNat > hi.toNat then
+          return .error s!"empty character range {repr lo}-{repr hi}: the lower bound is greater than the upper bound"
+        return .ok (lo.toNat, hi.toNat)
     else
       return .ok (lo.toNat, lo.toNat)
 
@@ -1156,9 +1172,17 @@ partial def parseLig (input : String) (_fileName : String := "<lig>") :
       let (interior, blockSpan) := blk
       -- Parse the block interior with a fresh cursor over its text.
       let innerCur : Cursor := { input := interior, pos := ⟨0⟩ }
-      match (scanLexerBlockBody blockSpan).run innerCur |>.1 with
-      | .error e => throw s!"in %lexer block: {e}"
-      | .ok spec => lexer := some spec
+      let off := blockSpan.startPos.byteIdx
+      let (result, stop) := (scanLexerBlockBody blockSpan).run innerCur
+      match result with
+      | .error e =>
+          -- Offsets inside the block start at 0, so the message's own `at byte N` is not
+          -- an offset in the file. Drop it and report where the scan stopped instead.
+          let e := match e.splitOn " at byte " with
+            | msg :: _ :: _ => msg
+            | _ => e
+          throw s!"in %lexer block: {e} at byte {off + stop.pos.byteIdx}"
+      | .ok spec => lexer := some (spec.shifted off)
     | other => throw s!"unknown directive `%{other}`"
   unless sawSep do throw "missing `%%` separating directives from rules"
   let some eofName := eof | throw "missing `%eof` directive"

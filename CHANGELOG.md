@@ -4,9 +4,9 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Until 1.0, minor
 versions may change the CLI, the `.lig` syntax, and the generated module API.
 
-## [Unreleased]
+## [0.1.0-alpha.1] - 2026-11-27
 
-First release, planned as 0.1.0. Requires Lean 4.36.0 and Lake 5.0.0
+First alpha release. Requires Lean 4.36.0 and Lake 5.0.0
 (`lean-toolchain`). Generated modules use Lean's module system, so a project
 that imports them must use the same Lean version.
 
@@ -26,6 +26,12 @@ that imports them must use the same Lean version.
   Exit code 0 means success, 1 an error, and 2 LR(1) conflicts (output is still
   written). `.lig` syntax errors are reported as `file:line:col`.
 - `--print-grammar bnf|markdown` to render the grammar checked by the proofs.
+- A check that the `.lig` file name and the module prefix give valid Lean module names.
+- Grammar checks in the generator, shared with the language server: errors for a
+  duplicate binder, the EOF token inside a production, a lexer rule that matches
+  nothing, a reversed character range and an unknown escape; warnings for a lexer
+  rule that matches the empty string and for one that can never win. Messages carry
+  `file:line:col`.
 - `%option compress_tables`, which shrinks the emitted executable tables.
 
 ### Experimental

@@ -172,8 +172,11 @@ def parseExpr (source : String) : Except Lexer.LexError (Option Expr) := do
 end MyProject
 ```
 
-Use `ExprParser.run` instead of `parse` when rejection, timeout, and
-internal-error outcomes must remain distinct.
+`parse` returns `none` both for a rejected input and for an input that needs more
+fuel than the default allows. Use `ExprParser.diagnose` to tell them apart, and
+see the "Fuel" section of the README for how large an input the default
+accepts and how to size `logNSteps`. `ExprParser.run` is internal: its result
+carries the parser's internal value type.
 
 ## 6. Use the generated guarantees
 
@@ -183,7 +186,8 @@ Import the paired specification module in proof-oriented code:
 import MyProject.Generated.ExprVerified
 ```
 
-It exports corollaries stated directly about `ExprParser`:
+It exports theorems stated about `ExprParser` (the ones about `run` are about the
+internal function that `parse` is built on):
 
 - `parser_sound`: a successful `ExprParser.parse` result has an input-linked
   `ParserStartTree` with the returned semantics;

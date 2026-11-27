@@ -260,3 +260,57 @@ s :: Nat
 #guard hasError (collectDiagnostics unclosedRustGrammar) "!!rust"
 
 #eval IO.println "All diagnostics engine tests passed."
+
+/-! ### Lexer rule checks and binder checks (shared with the command line) -/
+
+/-- A grammar around the given lexer rules. The rules start on line 8. -/
+def lexerRulesGrammar (rules : String) : String :=
+  "%tokentype Tok\n%token <Nat> NUM\n%token ID\n%token KW\n%token EOF\n%eof EOF\n%lexer {\n" ++
+  rules ++ "  eof => { Tok.EOF }\n}\n%start e\n%%\ne :: Nat\n  | v=NUM { v }\n"
+
+def numRule : String := "  | ['0'-'9']+ as s => { Tok.NUM s.toNat! }\n"
+def idRule : String := "  | ['a'-'z']+ => { Tok.ID }\n"
+def kwRule : String := "  | \"if\" => { Tok.KW }\n"
+
+-- Keyword before identifier: no diagnostics. After it, the keyword rule is dead and
+-- the warning is located on the keyword rule (line 10, zero-based 9).
+#guard (collectDiagnostics (lexerRulesGrammar (numRule ++ kwRule ++ idRule))).all
+  fun d => d.severity == .information
+#guard hasWarning (collectDiagnostics (lexerRulesGrammar (numRule ++ idRule ++ kwRule))) "can never win"
+#guard (collectDiagnostics (lexerRulesGrammar (numRule ++ idRule ++ kwRule))).any fun d =>
+  strContains d.message "can never win" &&
+    (byteToLineCol (lexerRulesGrammar (numRule ++ idRule ++ kwRule)) d.startByte).1 == 9
+
+-- A rule that matches the empty string is a warning, located on that rule (line 8).
+#guard hasWarning (collectDiagnostics (lexerRulesGrammar "  | ['0'-'9']* as s => { Tok.NUM s.length }\n"))
+  "matches the empty string"
+#guard (collectDiagnostics (lexerRulesGrammar "  | ['0'-'9']* as s => { Tok.NUM s.length }\n")).any fun d =>
+  strContains d.message "matches the empty string" &&
+    (byteToLineCol (lexerRulesGrammar "  | ['0'-'9']* as s => { Tok.NUM s.length }\n") d.startByte).1 == 7
+
+-- A pattern that matches nothing is an error.
+def everyCharClassRule : String :=
+  "  | [^ '\\u0000'-'" ++ String.singleton (Char.ofNat 0x10FFFF) ++ "'] => { Tok.ID }\n"
+#guard hasError (collectDiagnostics (lexerRulesGrammar (numRule ++ everyCharClassRule))) "can never match"
+-- Reversed ranges and unknown escapes are errors from the scanner, with a position.
+#guard hasError (collectDiagnostics (lexerRulesGrammar "  | ['9'-'0']+ => { Tok.ID }\n")) "empty character range"
+#guard hasError (collectDiagnostics (lexerRulesGrammar "  | '\\d'+ => { Tok.ID }\n")) "unknown escape"
+#guard (collectDiagnostics (lexerRulesGrammar "  | '\\d'+ => { Tok.ID }\n")).any fun d =>
+  d.severity == .error && d.startByte > 80
+-- A backslash before punctuation is still that character.
+#guard countErrors (collectDiagnostics (lexerRulesGrammar (numRule ++ "  | '\\.' => { Tok.ID }\n"))) == 0
+
+def dupBinderGrammar : String :=
+"%tokentype Tok
+%token <Nat> NUM
+%token PLUS
+%token EOF
+%eof EOF
+%start e
+%%
+e :: Nat
+  | v=NUM PLUS v=NUM { v }
+"
+
+-- A binder used twice in one alternative is an error on the second use.
+#guard hasError (collectDiagnostics dupBinderGrammar) "used more than once"

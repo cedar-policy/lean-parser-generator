@@ -39,6 +39,19 @@ An action is either `skip` or a Lean expression producing a token. A regex can u
 }
 ```
 
+### Escapes
+
+Quoted strings and character literals accept `\n`, `\t`, `\r`, `\0`, `\\`, `\"`, `\'` and `\u` followed by up to four hex digits. A code point above `U+FFFF` is written as the character itself. A backslash before punctuation stands for that character, so `'\.'` is a dot. A backslash before any other letter or digit is an error. In particular there are no regex shorthand classes: `\d` is not a digit class, so write `['0'-'9']`.
+
+### Checks on rules
+
+The generator checks the rules of every mode and reports the results with the position of the rule:
+
+- A character range with its bounds reversed (`['9'-'0']`) is an error.
+- A rule whose pattern matches no string is an error.
+- A rule that matches the empty string is a warning. The lexer never emits a token for an empty match: when the longest match at a position is empty, `tokenize` returns a `LexError`. So only the non-empty strings that such a rule matches have an effect, and it behaves like the same pattern with `+`.
+- A rule that can never win is a warning. Rules are tried by longest match and a tie goes to the earlier rule, so a rule whose strings are all matched by an earlier rule is never used. A keyword rule (`"if"`) placed after an identifier rule (`['a'-'z']+`) is the usual case.
+
 `%lexerheader { … }` contains helpers used only by lexer actions. It is copied into `FooLexer.lean` after the token type is declared.
 
 ## Universal lexer roundtrip

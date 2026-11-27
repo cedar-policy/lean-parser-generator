@@ -26,7 +26,12 @@ expose semireducible class-field projections.
 The `weak.` prefix is required because linter options are registered after Lake
 startup. -/
 package «LeanParserGenerator» where
-  version := v!"0.1.0"
+  version := v!"0.1.0-alpha.1"
+  description := "A generator of validated LR(1) parsers in Lean"
+  keywords := #["parser", "parser-generator", "lr1", "verification"]
+  homepage := "https://github.com/cedar-policy/lean-parser-generator"
+  license := "Apache-2.0"
+  licenseFiles := #["LICENSE", "NOTICE"]
   leanOptions := #[
     ⟨`weak.linter.unusedVariables, true⟩,
     ⟨`weak.warn.classDefReducibility, false⟩
