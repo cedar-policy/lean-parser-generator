@@ -41,6 +41,7 @@ The server layer converts byte ranges to LSP line/character positions with
 -/
 public import LeanParserGenerator.Frontend.File
 public import LeanParserGenerator.Emit.Codegen
+public import LeanParserGenerator.Lexer.DFA
 
 
 @[expose] public section
@@ -113,6 +114,69 @@ def extractByteOffset (msg : String) : Option Nat :=
   | tail :: _ :: _ => leadingNat? tail
   | _ => none
 
+/-! ### Lexer rule checks -/
+
+/-- Does the class match no character? A positive class is empty when every range is
+    reversed. A negated class is empty when its valid ranges cover every code point. -/
+def classIsEmpty (k : Lexer.CharClass) : Bool :=
+  let valid := k.rs.filter (fun r => r.1 ≤ r.2)
+  if !k.neg then valid.isEmpty
+  else
+    -- Walk the ranges in order of their lower bound and track the first code point
+    -- that is not yet covered.
+    let sorted := valid.toArray.qsort (fun a b => a.1 < b.1)
+    let next := sorted.foldl (fun next r => if r.1 ≤ next then max next (r.2 + 1) else next) 0
+    next > Lexer.DFA.maxCodePoint
+
+/-- Does the regex match no string at all? -/
+def regexIsEmptyLang : Lexer.Regex → Bool
+  | .never => true
+  | .epsilon => false
+  | .cls k => classIsEmpty k
+  | .cat a b => regexIsEmptyLang a || regexIsEmptyLang b
+  | .alt a b => regexIsEmptyLang a && regexIsEmptyLang b
+  | .star _ => false
+
+/-- The checks on the `%lexer` block that need no DFA:
+    * a rule whose pattern matches nothing is an error;
+    * a rule that matches the empty string is a warning, because the lexer never emits
+      a token for an empty match (a zero-length longest match is a lexing error). -/
+def lexerRuleDiagnostics (s : Surface) : Array LigDiagnostic := Id.run do
+  let some spec := s.lexer | return #[]
+  let mut ds : Array LigDiagnostic := #[]
+  for mode in spec.modes do
+    for r in mode.rules do
+      if regexIsEmptyLang r.regex then
+        ds := ds.push (LigDiagnostic.ofSpan r.span .error
+          "this lexer rule can never match: its pattern matches no string")
+      else if Lexer.Regex.nullable r.regex then
+        ds := ds.push (LigDiagnostic.ofSpan r.span .warning
+          "this lexer rule matches the empty string. The lexer never emits a token for an empty match, so only the non-empty strings it matches have an effect")
+  return ds
+
+/-- Lexer rules that can never win. Rule `i` of a mode wins in a DFA state when it is
+    the lowest-numbered rule that accepts there, so a rule that wins in no state other
+    than the start state matches only strings that an earlier rule matches too. A
+    common cause is a keyword rule placed after the identifier rule. -/
+def deadLexerRuleDiagnostics (s : Surface) : Array LigDiagnostic := Id.run do
+  let some spec := s.lexer | return #[]
+  let mut ds : Array LigDiagnostic := #[]
+  for mode in spec.modes do
+    let regexes := mode.rules.map (·.regex)
+    -- A rule with an empty language is already reported as an error.
+    if regexes.any regexIsEmptyLang then continue
+    let some dfa := Lexer.DFA.build? regexes | continue
+    let mut wins : Array Bool := Array.replicate mode.rules.size false
+    for h : i in [1:dfa.states.size] do
+      if let some k := dfa.states[i].accept then
+        wins := wins.set! k true
+    for h : k in [0:mode.rules.size] do
+      if !wins[k]! then
+        let r := mode.rules[k]
+        ds := ds.push (LigDiagnostic.ofSpan r.span .warning
+          "this lexer rule can never win: every string it matches is also matched by an earlier rule of the same mode, so the earlier rule is used. Move this rule before the earlier one")
+  return ds
+
 /-! ### Semantic checks over a parsed `Surface`
 
 These reuse the spans the frontend already records, so a problem is highlighted
@@ -151,6 +215,18 @@ def semanticDiagnostics (s : Surface) : Array LigDiagnostic := Id.run do
           s!"nonterminal `{r.lhs}` is given two result types: `{ty0}` and `{r.ty}`")
     | none => ntTy := ntTy.push (r.lhs, r.ty)
 
+  -- A binder name used twice in one alternative.
+  for r in s.rules do
+    for alt in r.alts do
+      let mut seen : Array String := #[]
+      for e in alt.elems do
+        if let some b := e.binder then
+          if seen.contains b then
+            ds := ds.push (LigDiagnostic.ofSpan e.span .error
+              s!"binder `{b}` is used more than once in this alternative of `{r.lhs}`")
+          else
+            seen := seen.push b
+
   -- Per-element checks: undefined symbols and misuse of the EOF token.
   for r in s.rules do
     for alt in r.alts do
@@ -175,7 +251,7 @@ def semanticDiagnostics (s : Surface) : Array LigDiagnostic := Id.run do
       if (s.rules.find? (·.lhs == r.lhs)).map (·.span) == some r.span then
         ds := ds.push (LigDiagnostic.ofSpan r.span .information
           s!"nonterminal `{r.lhs}` is never used")
-  return ds
+  return ds ++ lexerRuleDiagnostics s ++ deadLexerRuleDiagnostics s
 
 /-! ### Top-level entry point -/
 

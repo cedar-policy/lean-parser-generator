@@ -8,13 +8,13 @@ This follows the a-posteriori validation architecture described in [Validating L
 
 ## Status
 
-This is version 0.1.0. Before 1.0, a minor version may change a stable interface, and [`CHANGELOG.md`](CHANGELOG.md) will say so. Experimental interfaces may change or disappear in any release.
+This is an alpha release, version 0.1.0-alpha.1. Before 1.0, a minor version may change a stable interface, and [`CHANGELOG.md`](CHANGELOG.md) will say so. Experimental interfaces may change or disappear in any release.
 
 | Interface | Status |
 |---|---|
 | Command line: `leanparsergenerator [options] <input.lig>`, its flags and exit codes | Stable |
 | `.lig` directives, grammar rules, semantic actions, and the `%lexer` block | Stable |
-| Generated API: `parse`, `run`, `tokenize`, `errorMessage`, `diagnose`, and the exported theorems (`parser_sound`, `parser_complete`, `parser_err_free`, `parser_ne_err`, `parser_unambiguous`, `parse_eq_dependent`) | Stable |
+| Generated API: `parse`, `tokenize`, `errorMessage`, `diagnose`, and the exported theorems (`parser_sound`, `parser_complete`, `parser_err_free`, `parser_ne_err`, `parser_unambiguous`, `parse_eq_dependent`) | Stable |
 | `%option module_prefix` and `%option compress_tables`, see the [`%option` reference](#option-reference) | Stable |
 | Roundtrip modules (`%option roundtrip_lexer`, `roundtrip_parser`, `roundtrip_format`), see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md) | Experimental |
 | Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`), see [`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md). It has no proofs. | Experimental |
@@ -67,7 +67,7 @@ Next, there is a choice. Either the token type and the lexer are defined outside
   eof => { Tok.EOF }
 }
 ```
-One `%tokentype` declaration and a few `%token` declarations precede the `%lexer` block itself. The type of the tokens is generated from the `%tokentype` and `%token` declarations, and then the generated type can be used (as `<token type>.<token kind>`) inside the lexer definition.
+One `%tokentype` declaration and a few `%token` declarations precede the `%lexer` block itself. The type of the tokens is generated from the `%tokentype` and `%token` declarations, and then the generated type can be used (as `<token type>.<token kind>`) inside the lexer definition. The token type is declared in the root namespace under the `%tokentype` name, so two grammars that are imported into one program need different `%tokentype` names.
 
 The body of the `%lexer` block is a list of rules. A `let` line names a regular expression so that rules can reuse it (`digit` above). Each rule has the form `| regex => action`. A regex is built from quoted strings, character classes (`['0'-'9']`, or `[^ '\n']` for the complement), sequencing, alternation with `|`, grouping with parentheses, and the postfix operators `*` and `+`. Writing `as s` after a regex binds the matched text to `s`, a `String`. The action is either `skip`, which discards the match (whitespace and comments), or a Lean expression that builds a token. The lexer takes the longest match at each position, and a tie goes to the earlier rule. The `eof` rule gives the token that ends the stream. The full syntax, including lexer modes and the remaining regex operators, is in [DESIGN §8](docs/DESIGN.md) and [`docs/LEXER.md`](docs/LEXER.md).
 
@@ -156,7 +156,28 @@ leanparsergenerator --help | --version
 | `--rust-report [-v]` | Report which semantic actions the Rust backend can emit. Writes no files. Experimental. |
 | `-h`, `--help`, `--version` | Show the usage text or the version. |
 
+The base name of the generated modules is the `.lig` file name without the extension, with the first letter in upper case (`expr.lig` gives `ExprParser`). The generator rejects a file name that does not give valid Lean module names: the name must use only ASCII letters, digits and underscores and must not start with a digit. For example, `my-grammar.lig` and `calc.v2.lig` are rejected, and the error suggests a valid name. The same rule applies to each part of a module prefix. A rejected name or prefix is an error with exit code 1 and nothing is written.
+
 The exit code is 0 on success. It is 1 on any error: bad arguments, an input file that cannot be read, a `.lig` syntax error, or a failure during generation. Syntax errors are reported as `file:line:col: parse error: …`. It is 2 when Pager reports LR(1) conflicts. In that case the conflicts are printed to standard error and the requested output is still written, so a build script that wants conflicts to fail the build must treat 2 as failure.
+
+### What the generator checks
+
+Before it writes anything, the generator runs the checks that the language server runs. An error stops the generation with exit code 1 and nothing is written. A warning is printed to standard error and the generation goes on. Every message has a position in the `.lig` file: `error: file:line:col: message` or `warning: file:line:col: message`. The generator reports all the errors it finds, not only the first.
+
+Errors:
+- a symbol in a production that is neither a declared token nor a nonterminal;
+- a start symbol that is not a rule head;
+- the `%eof` token used inside a production;
+- a binder name used twice in one alternative;
+- a lexer rule whose pattern matches no string, for example a class that excludes every character;
+- in a `%lexer` block, a character range whose lower bound is greater than its upper bound (`['9'-'0']`), and a backslash escape that does not exist (`'\d'`). There are no shorthand classes, so write `['0'-'9']`. A backslash before punctuation stands for that character.
+
+Warnings:
+- a token declared twice, or a nonterminal given two result types;
+- a lexer rule that matches the empty string, such as `['0'-'9']*`. The lexer never emits a token for an empty match, so only the non-empty strings the rule matches have an effect;
+- a lexer rule that can never win, because every string it matches is also matched by an earlier rule of the same mode. The usual cause is a keyword rule placed after the identifier rule. Move it before.
+
+A nonterminal that no production uses is reported only by the language server. LR(1) conflicts are reported separately, as described above.
 
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md) shows how to call the generator from a Lake target. The roundtrip options add experimental proof modules. They are not needed to get a working parser.
 
@@ -175,15 +196,36 @@ def parseExpr (source : String) : Except Lexer.LexError (Option Expr.Ast) := do
 
 `ExprParser` already imports `ExprLexer` for the token type, so a caller that only needs `parse` can import `ExprParser` alone. When the lexer is hand-written, the caller should import the application's own token module and lexer instead.
 
-`parse` returns `some value` when the input is accepted and `none` otherwise. The optional logarithmic-fuel argument, whose default is `20`, controls the maximum number of parser steps; a value `n` permits up to `2^n` steps.
+`parse` returns `some value` when the input is accepted and `none` otherwise. It returns `none` in two different cases: the input is not in the language, or the parser ran out of fuel. The next section explains the fuel and how to tell the two cases apart.
 
-Sometimes an application must distinguish a syntax error from fuel exhaustion, or inspect an unexpected internal table error. In that case, use `run` instead:
+### Fuel
+
+The parser runs for at most `2 ^ logNSteps` steps, where `logNSteps` is an optional argument of `parse` with default `20`. The default is about one million steps. A step is a shift or a reduction, so the steps needed grow with the number of nodes in the parse tree. This is the quantity `ptSize` that `parser_complete` bounds (see [`docs/GUARANTEES.md`](docs/GUARANTEES.md)). I measured the largest input that fits in the default on two grammars:
+
+| Grammar | Largest input | Tokens | Steps per token |
+|---|---|---|---|
+| The `expr` grammar above, on `1 + 1 + … + 1` | 262,143 numbers | 524,286 | 2 |
+| The Cedar policy grammar, on `permit(principal, action, resource) when { principal.x == 1 };` repeated | 12,945 policies | 220,066 | about 5 |
+
+So the default accepts somewhere between 200,000 and 500,000 tokens, depending on the grammar. A valid input larger than that makes `parse` return `none`, and nothing reports an error. If your inputs can be that large, pass a larger `logNSteps`. The steps per token depend on the grammar, so leave room. `Nat.log2 tokens.length + 4` gives at least 8 steps per token, which is more than either grammar needed:
 
 ```lean
-ExprParser.run tokens
+ExprParser.parse tokens (Nat.log2 tokens.length + 4)
 ```
 
-Its result distinguishes `.ok`, `.reject`, `.timeout`, and `.err`. Lean proves the `.err` case unreachable. The theorem is `ExprVerified.parser_ne_err`, in the generated specification module (`import MyProject.ExprVerified`). [`docs/GUARANTEES.md`](docs/GUARANTEES.md) explains this and the other guarantees.
+A larger value costs nothing on a small input, because the parser stops as soon as it has an answer (`1 + 2` with `logNSteps := 60` returns immediately).
+
+To tell a rejected input from a timeout, call `diagnose`. `errorMessage` returns `none` for a timeout, so it does not tell them apart:
+
+```lean
+match ExprParser.diagnose tokens with
+| .ok _ => -- accepted
+| .error e => -- rejected, with the position and the expected tokens in `e`
+| .timeout => -- out of fuel, retry with a larger logNSteps
+| .internal msg => -- inconsistent tables, which `parser_err_free` rules out
+```
+
+The generated parser module also defines `run`, which `parse` is built on and which the theorems in the specification module are about (`parser_err_free`, `parser_ne_err`). It is not part of the stable API. Its result carries the parser's internal value type, a sum type with one constructor per semantic type, so reading the start value from it means matching on constructors that change when the grammar changes. Use `parse` for the value and `diagnose` for errors. [`docs/GUARANTEES.md`](docs/GUARANTEES.md) explains the guarantees.
 
 The parser treats a finite list as an EOF-padded stream. Thus a lexer may append the declared EOF token—as the lexer above does—and exhausted input is also padded with that same token.
 
@@ -195,7 +237,7 @@ A `.lig` file does not need a `%lexer` block. Without one, the generator emits n
 
 Every token carries a source span. The generated lexer's `tokenize` returns
 `List (Runtime.Positioned Tok)`—each token paired with a `Runtime.Span`, a
-half-open byte range into the input—and `parse`/`run` consume that list, so the
+half-open byte range into the input—and `parse` consumes that list, so the
 `parseExpr` above already threads positions without any extra work. A hand-written
 lexer builds the same list; when it has no real positions it wraps each token with
 `Runtime.Positioned.dummy` (the zero-width `Span.dummy`).
@@ -208,8 +250,7 @@ first and last symbols. An action that never mentions `_span` costs nothing—sp
 ride in the parser value but the binder is only introduced where it is named, and
 generated code does not warn about the ones you ignore.
 
-`parse` returns the start value only and drops the span. When the top-level span
-is wanted, `run` returns it: its `.ok` case is `(span, value)`. Line and column are
+`parse` returns the start value only and drops its span. Line and column are
 not stored; they are computed from the source at render time. The generated
 `errorMessage` does this for syntax errors:
 

@@ -47,7 +47,7 @@ public section
 open Frontend Emit Construct
 
 /-- The release version. Keep in sync with `version` in `lakefile.lean`. -/
-def toolVersion : String := "0.1.0"
+def toolVersion : String := "0.1.0-alpha.1"
 
 inductive GrammarViewFormat where
   | bnf
@@ -95,6 +95,39 @@ def baseOfLig (ligPath : String) : String :=
   | [] => stem
   | c :: rest => String.ofList (c.toUpper :: rest)
 
+/-- Is `s` usable as one component of a Lean module name? It must be non-empty, use
+    only ASCII letters, digits and underscores, and not start with a digit. -/
+def isModuleComponent (s : String) : Bool :=
+  match s.toList with
+  | [] => false
+  | c :: rest =>
+      (c.isAlpha || c == '_') && c.toNat < 128 && rest.all fun d => (d.isAlphanum || d == '_') && d.toNat < 128
+
+/-- `s` with every character that `isModuleComponent` rejects replaced by `_`, and a
+    leading `_` when it would start with a digit. Used to suggest a file name. -/
+def sanitizeComponent (s : String) : String :=
+  let mapped := String.ofList (s.toList.map fun c =>
+    if (c.isAlphanum || c == '_') && c.toNat < 128 then c else '_')
+  if mapped.isEmpty then "grammar"
+  else if mapped.front.isDigit then "_" ++ mapped else mapped
+
+/-- The error for a `.lig` file name that cannot give valid module names, or `none`.
+    The generated modules are named `<Base>Parser`, `<Base>Verified` and
+    `<Base>Lexer`, where `<Base>` is `baseOfLig`, so the stem has to be an identifier. -/
+def ligNameError (ligPath : String) : Option String :=
+  let file := (ligPath.splitOn "/").getLast!
+  let stem := if file.endsWith ".lig" then (file.dropEnd 4).toString else file
+  if isModuleComponent stem then none
+  else
+    let hint := s!"{sanitizeComponent stem}.lig"
+    some s!"cannot infer module names from the file name `{file}`: the generated modules are named after the part before `.lig`, which must contain only ASCII letters, digits and underscores and not start with a digit. Rename the file, for example to `{hint}`."
+
+/-- The error for a module prefix that is not a dotted list of identifiers, or `none`.
+    The empty prefix is allowed. `source` says where the prefix came from. -/
+def modulePrefixError (source prefix_ : String) : Option String :=
+  if prefix_.isEmpty || (prefix_.splitOn ".").all isModuleComponent then none
+  else some s!"invalid module prefix `{prefix_}` (from {source}): expected identifiers separated by `.`, each made of ASCII letters, digits and underscores and not starting with a digit"
+
 /-- Prefix a module name with a dotted module prefix, e.g. `calc` + `CalcParser` →
     `calc.CalcParser`. An empty prefix leaves the name top-level. -/
 def qualify (prefix_ modName : String) : String :=
@@ -136,6 +169,21 @@ private def prepareFile (ligPath : String) : IO (Except String (Surface × Prepa
     match Frontend.Macros.expandMacros surface0 with
     | .error error => return .error s!"{ligPath}: macro expansion error: {error}"
     | .ok surface =>
+      -- The checks that the language server runs. Errors stop the generation, and
+      -- warnings are printed.
+      let ds := semanticDiagnostics surface
+      let place (d : LigDiagnostic) : String :=
+        -- A diagnostic without a span (start and end both 0) has no position.
+        if d.startByte == 0 && d.endByte == 0 then ligPath
+        else
+          let (line, col) := byteToLineCol input d.startByte
+          s!"{ligPath}:{line + 1}:{col + 1}"
+      for d in ds do
+        if d.severity == .warning then
+          IO.eprintln s!"warning: {place d}: {d.message}"
+      let errors := ds.filter (·.severity == .error)
+      unless errors.isEmpty do
+        return .error ("\nerror: ".intercalate (errors.toList.map fun d => s!"{place d}: {d.message}"))
       match prepareGrammar surface with
       | .error error => return .error s!"{ligPath}: {error}"
       | .ok prepared => return .ok (surface, prepared)
@@ -172,6 +220,11 @@ def generate (cfg : GenConfig) : IO UInt32 := do
     let dir := asDirPrefix (cfg.outDir.getD (dirOfPath ligPath))
     let base := baseOfLig ligPath
     let prefix_ := cfg.modulePrefix.getD surface.options.modulePrefix
+    -- The names matter only when Lean modules are written. `--only rust` skips them.
+    if wants .verified || wants .parser || wants .lexer then
+      if let some e := ligNameError ligPath then return ← fail e
+      let source := if cfg.modulePrefix.isSome then "`--module-prefix`" else "`%option module_prefix`"
+      if let some e := modulePrefixError source prefix_ then return ← fail s!"{ligPath}: {e}"
     let verifiedModule := base ++ "Verified"
     let executableModule := base ++ "Parser"
     let executableImport := qualify prefix_ executableModule

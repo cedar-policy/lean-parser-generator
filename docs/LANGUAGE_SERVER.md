@@ -26,8 +26,12 @@ function of the document text. It reports:
 | error | a symbol in a production that is neither a declared token nor a nonterminal |
 | error | the start symbol is not a rule head |
 | error | the `%eof` token used inside a production |
+| error | a binder name used twice in one alternative |
+| error | a lexer rule whose pattern matches no string |
 | warning | a `%token` declared more than once |
 | warning | a nonterminal given two different result types |
+| warning | a lexer rule that matches the empty string |
+| warning | a lexer rule that can never win (shadowed by an earlier rule) |
 | warning | LR(1) (Pager) conflicts in the constructed automaton |
 | information | a nonterminal that is defined but never used |
 
