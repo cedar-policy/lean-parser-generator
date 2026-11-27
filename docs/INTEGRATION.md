@@ -202,9 +202,9 @@ never construct this dependent tree explicitly.
 
 ## 7. Automate generation with Lake
 
-The following target was validated against Lake 5.0.0 (Lean 4.36.0). It rebuilds the generator,
-checks source/output modification times, and regenerates both modules before the
-library compilation jobs that depend on it:
+The following target was built with Lake 5.0.0 and Lean 4.36.0. It builds the
+generator, compares the modification times of the grammar, the generator and the
+outputs, and regenerates the modules before the library jobs that depend on them:
 
 ```lean
 import Lake
@@ -281,20 +281,20 @@ lean_lib MyProjectVerified where
 Build the executable parser with `lake build` (fast, on the default path) and
 re-check the proofs with `lake build MyProjectVerified` (cached).
 
-We recommend running the proof check at a different time than the general build:
-for example, as a separate CI job that runs on changes to the `.lig` file or the
-generator version, and before a release. Checking `ExprVerified` from scratch takes
-tens of seconds for a Cedar-sized grammar (DESIGN §10 measures about 20 s for
-Cedar and about 30 s for C99 on a 32-core machine, before the optimizations it
-describes: about 4 min and about 18 min), and the parser does not import it, so the default build
-succeeds with or without it. That also means the default build does not tell you
-that the proofs hold; only the separate job does.
+Run the proof check separately from the general build, for example as a CI job
+that runs when the `.lig` file or the generator version changes, and before a
+release. Checking `ExprVerified` from scratch takes tens of seconds for a
+Cedar-sized grammar. DESIGN §10 measures about 20 s for Cedar and about 30 s for
+C99 on a 32-core machine, down from about 4 min and 18 min before the
+optimizations it describes. The parser does not import `ExprVerified`, so the
+default build succeeds with or without it. This also means that the default build
+does not show that the proofs hold. Only the separate job does.
 
 ### First build and CI
 
-Lake discovers Lean modules before ordinary library jobs run. If generated files
-are committed—which is recommended for inspection and review—plain `lake build`
-is sufficient and the target refreshes stale outputs automatically.
+Lake discovers Lean modules before it runs library jobs. If the generated files
+are committed, which is useful for review, plain `lake build` is enough and the
+target refreshes stale outputs.
 
 If generated files are not committed, bootstrap them before the first module
 discovery:
@@ -304,12 +304,12 @@ lake build generatedExprParser
 lake build
 ```
 
-Use the same two commands in a clean CI checkout. Subsequent `lake build` calls
-regenerate automatically whenever the `.lig` file or generator executable is
-newer. Exit code `2` means Pager reported LR(1) conflicts after writing the
-outputs; this production-oriented example intentionally treats it as a build
-failure rather than compiling a conflict-resolved parser. Frontend errors and
-other nonzero statuses likewise fail before stale parser code is compiled.
+Use the same two commands in a clean CI checkout. Later `lake build` calls
+regenerate the modules whenever the `.lig` file or the generator executable is
+newer. Exit code `2` means that Pager reported LR(1) conflicts after writing the
+outputs. The example treats it as a build failure, so a conflicted parser is never
+compiled. Any other nonzero exit code also fails the build before stale parser
+code is compiled.
 
 For several grammars, put their paths/module names in an array and run the same
 mtime-and-process block for each entry, as demonstrated by this repository's

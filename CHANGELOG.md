@@ -26,16 +26,11 @@ that imports them must use the same Lean version.
   Exit code 0 means success, 1 an error, and 2 LR(1) conflicts (output is still
   written). `.lig` syntax errors are reported as `file:line:col`.
 - `--print-grammar bnf|markdown` to render the grammar checked by the proofs.
-- A language server (`lig-language-server`) and a VS Code extension for `.lig`.
 - `%option compress_tables`, which shrinks the emitted executable tables.
-- One table of `%option`s (`optionSpecs`) that both `.lig` parsers, the error
-  messages, and a test (`lig-option-test`) share. The generated `.lig` parser now
-  accepts a dotted `%option module_prefix`, and the hand-written one reports a
-  missing `%option gen_rust` value instead of reading the next directive as the path.
-- `cli-test`, which checks the exit codes, messages and written files of the CLI.
 
 ### Experimental
 
 - Roundtrip proofs (`docs/ROUNDTRIP.md`): `%option roundtrip_lexer`, `roundtrip_parser` and
   `roundtrip_format`. Their output and options may change between releases.
 - Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`). It has no proofs.
+- A language server (`lig-language-server`) and a VS Code extension for `.lig` files.

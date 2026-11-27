@@ -42,12 +42,6 @@ The diagnostics feature below additionally needs the server binary.
    npm install
    ```
 
-   > On an Amazon dev host, npm points at CodeArtifact. If `npm install` fails
-   > with `E401`, authenticate first (e.g. `ada credentials update` / the
-   > `aws codeartifact login --tool npm ...` your team uses), or temporarily use
-   > the public registry:
-   > `npm install --registry=https://registry.npmjs.org`.
-
 ## Run it (development / local use)
 
 The simplest way to use it without packaging:

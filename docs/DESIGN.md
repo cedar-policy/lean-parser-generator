@@ -56,7 +56,8 @@ theorem completeness : Complete :=
 
 `native_decide` discharges generated certificate and finite refinement-agreement
 checks. It trusts compiled Boolean evaluation; the parametric runtime theorems
-themselves use no `sorry`, custom axioms, or `Classical.choice`.
+themselves use no `sorry` and no custom axioms. `parser_complete` depends on
+`Classical.choice`; the other exported theorems do not.
 
 The validators establish that the emitted automaton satisfies the runtime
 properties. They do not prove that the untrusted frontend preserved the author's

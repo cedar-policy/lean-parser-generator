@@ -1,9 +1,9 @@
 # `.lig` Language Server
 
 `lig-language-server` is a small [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
-server that provides live diagnostics for `.lig` grammar files. It reuses the
-untrusted frontend parser and the Pager construction, so the problems it reports
-are exactly the ones the code generator itself would reject.
+server that provides live diagnostics for `.lig` grammar files. It uses the same
+frontend parser and Pager construction as the generator, so it reports the errors
+that make the generator fail, and it also reports warnings.
 
 ## Building
 

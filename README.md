@@ -2,7 +2,7 @@
 
 `lean-parser-generator` turns an LR(1) grammar, written in a `.lig` file, into a Lean parser. The grammar carries ordinary Lean semantic actions, so parsing can produce whatever value is useful to the application: an abstract syntax tree, a policy, a command, or simply a number.
 
-The generated parser is meant to be used as ordinary compiled Lean code. Alongside it, `lean-parser-generator` emits a dependent specification of the same grammar and a collection of certificates. Lean checks these certificates and proves that the parser agrees with the dependent specification. The construction of the LR(1) automaton and the code generator themselves do not have to be trusted.
+The generated parser is meant to be used as ordinary compiled Lean code. Alongside it, `lean-parser-generator` emits a dependent specification of the same grammar and a collection of certificates. Lean checks these certificates and proves that the parser agrees with the dependent specification. The LR(1) construction and the code generator are not trusted: if either produces a wrong table, Lean rejects the certificates.
 
 This follows the a-posteriori validation architecture described in [Validating LR(1) Parsers](https://xavierleroy.org/publi/validated-parser.pdf), which Menhir's verified back end also uses. The implementation here uses Pager's LR(1) construction and a small Lean runtime. [`docs/GUARANTEES.md`](docs/GUARANTEES.md) lists what Lean proves about a generated parser and what the proofs assume.
 
@@ -189,7 +189,7 @@ The parser treats a finite list as an EOF-padded stream. Thus a lexer may append
 
 ## Using a hand-written lexer
 
-A `.lig` file does not need a `%lexer` block. Without one, the generator emits no lexer module, and the token type and the lexer are ordinary hand-written Lean that `%header` imports. The lexer is just a function that produces the token list the parser consumes. This is the right choice when the tokens come from an existing lexer, or when the token language is not regular (the `imp` and `c99` fixtures in `test/` do this). A hand-written lexer gets no maximal-munch guarantee from Lean, and the parser theorem below is unaffected by that, since it starts at tokens. Wrap each token with `Runtime.Positioned.dummy` if there are no real source positions (see the next section).
+A `.lig` file does not need a `%lexer` block. Without one, the generator emits no lexer module, and the token type and the lexer are ordinary hand-written Lean that `%header` imports. The lexer is just a function that produces the token list the parser consumes. This is the right choice when the tokens come from an existing lexer, or when the token language is not regular (the `imp` and `c99` fixtures in `test/` do this). A hand-written lexer gets no maximal-munch guarantee from Lean. The parser theorems are not affected, since they start at tokens. Wrap each token with `Runtime.Positioned.dummy` if there are no real source positions (see the next section).
 
 ## Source positions
 
@@ -234,26 +234,22 @@ rest of the application. The `.lig` header imports them. The generated parser
 and specification modules can live under the application's normal module prefix
 and can be imported like any other Lean source files.
 
-A Lake target can fetch the generator executable from the dependency, compare
-the modification times of the grammar, generator, and generated files, and
-regenerate both outputs before the library is compiled. There is one practical
-bootstrap detail: Lake discovers modules before ordinary library jobs run. If
-generated modules are not committed, a clean checkout must generate them once
-before the first library build. If they are committed—as is often convenient for
-review—plain `lake build` is enough and stale files are refreshed automatically.
+A Lake target can run the generator executable from the dependency, compare the
+modification times of the grammar, the generator and the generated files, and
+regenerate the outputs before the library is compiled. Lake discovers modules
+before it runs library jobs, so if the generated modules are not committed, a
+clean checkout has to generate them once before the first library build. If they
+are committed, plain `lake build` is enough and refreshes stale files.
 
-We recommend checking the proofs of the validated parser at a different time than the general project build. The specification module (`ExprVerified`) carries the `native_decide` certificates, and checking it from scratch takes about 20 seconds for the Cedar grammar and about 30 seconds for the C99 grammar in this repository (32-core machine; CPU time is roughly 40 s and 55 s). `ExprParser` does not import it, so the application builds and runs without it. Put the generated `*Verified` modules in their own non-default `lean_lib`, so that `lake build` stays fast, and build that library in a separate CI job or when the grammar changes. Lake caches the result, so an unchanged rebuild takes about a second. The proofs only provide a guarantee if that check runs, so it should not be skipped.
+Check the proofs separately from the general project build. The specification module (`ExprVerified`) carries the `native_decide` certificates. Checking it from scratch takes about 20 seconds for the Cedar grammar and about 30 seconds for the C99 grammar in this repository (32-core machine; CPU time is roughly 40 s and 55 s). `ExprParser` does not import it, so the application builds and runs without it. Put the generated `*Verified` modules in their own non-default `lean_lib`, so that `lake build` stays fast, and build that library in a separate CI job or when the grammar changes. Lake caches the result, and an unchanged rebuild takes about a second. The proofs give no guarantee unless this check runs.
 
-[`docs/INTEGRATION.md`](docs/INTEGRATION.md) gives a complete, tested setup. It
-includes local and pinned Git dependencies, source layout, the full generator
-command, parser and proof imports, a Lake 5.0.0 target, multiple-output mtime
-checks, and clean-checkout CI commands.
+[`docs/INTEGRATION.md`](docs/INTEGRATION.md) shows a full setup, built with Lean 4.36.0 and Lake 5.0.0. It covers local and pinned Git dependencies, the source layout, the generator command, the parser and proof imports, a Lake target that regenerates stale outputs, and the commands for a clean CI checkout.
 
 ## Why are there two generated modules?
 
 `ExprParser` is the parser that programs call. It uses ordinary natural-number
 states, flat action and goto tables, and a generated sum type for semantic
-values. It is non-dependent and compiles normally.
+values. It uses no dependent types.
 
 `ExprVerified` is the dependent specification module. It defines the exact
 `Grammar`, LR automaton, dependent semantic-value types, and validation
@@ -275,9 +271,9 @@ hand.
 
 [`docs/GUARANTEES.md`](docs/GUARANTEES.md) states what is proved, how to read the checked grammar, the trust boundary, and how the module system affects the generated API. [`docs/DESIGN.md`](docs/DESIGN.md) describes the architecture, runtime invariants, `.lig` syntax, validation algorithms, refinement proof, and inspectable grammar view in detail.
 
-[`docs/INTEGRATION.md`](docs/INTEGRATION.md) is the practical guide for adding a parser to another Lake package and keeping generated modules up to date.
+[`docs/INTEGRATION.md`](docs/INTEGRATION.md) explains how to add a parser to another Lake package and keep the generated modules up to date.
 
-[`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md) explains the prototype Rust backend (`%option gen_rust`, `--rust-out`): what it generates, how to call it, and how it differs from the Lean lexer and parser. [`docs/RUST_PARSER.md`](docs/RUST_PARSER.md) has its design and the decisions behind it.
+[`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md) explains the experimental Rust backend (`%option gen_rust`, `--rust-out`): what it generates, how to call it, and how it differs from the Lean lexer and parser. [`docs/RUST_PARSER.md`](docs/RUST_PARSER.md) has its design and the decisions behind it.
 
 [`test/README.md`](test/README.md) lists the calculator, IMP, and Cedar fixtures, their generated modules, and the commands used to rebuild and test them.
 
