@@ -6,19 +6,6 @@ The generated parser is meant to be used as ordinary compiled Lean code. Alongsi
 
 This follows the a-posteriori validation architecture described in [Validating LR(1) Parsers](https://xavierleroy.org/publi/validated-parser.pdf), which Menhir's verified back end also uses. The implementation here uses Pager's LR(1) construction and a small Lean runtime. [`docs/GUARANTEES.md`](docs/GUARANTEES.md) lists what Lean proves about a generated parser and what the proofs assume.
 
-## Status
-
-This is an alpha release, version 0.1.0-alpha.1. Before 1.0, a minor version may change a stable interface, and [`CHANGELOG.md`](CHANGELOG.md) will say so. Experimental interfaces may change or disappear in any release.
-
-| Interface | Status |
-|---|---|
-| Command line: `leanparsergenerator [options] <input.lig>`, its flags and exit codes | Stable |
-| `.lig` directives, grammar rules, semantic actions, and the `%lexer` block | Stable |
-| Generated API: `parse`, `tokenize`, `errorMessage`, `diagnose`, and the exported theorems (`parser_sound`, `parser_complete`, `parser_err_free`, `parser_ne_err`, `parser_unambiguous`, `parse_eq_dependent`) | Stable |
-| `%option module_prefix` and `%option compress_tables`, see the [`%option` reference](#option-reference) | Stable |
-| Roundtrip modules (`%option roundtrip_lexer`, `roundtrip_parser`, `roundtrip_format`), see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md) | Experimental |
-| Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`), see [`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md). It has no proofs. | Experimental |
-| Language server and VS Code extension, see [`docs/LANGUAGE_SERVER.md`](docs/LANGUAGE_SERVER.md) | Experimental |
 
 ## Requirements
 
@@ -307,6 +294,20 @@ the same fuel.
 Both modules are generated from one prepared grammar and one Pager construction.
 They should be generated together, and generated source should not be edited by
 hand.
+
+## Status
+
+This is an alpha release, version 0.1.0-alpha.1. Before 1.0, a minor version may change a stable interface, and [`CHANGELOG.md`](CHANGELOG.md) will say so. Experimental interfaces may change or disappear in any release.
+
+| Interface | Status |
+|---|---|
+| Command line: `leanparsergenerator [options] <input.lig>`, its flags and exit codes | Stable |
+| `.lig` directives, grammar rules, semantic actions, and the `%lexer` block | Stable |
+| Generated API: `parse`, `tokenize`, `errorMessage`, `diagnose`, and the exported theorems (`parser_sound`, `parser_complete`, `parser_err_free`, `parser_ne_err`, `parser_unambiguous`, `parse_eq_dependent`) | Stable |
+| `%option module_prefix` and `%option compress_tables`, see the [`%option` reference](#option-reference) | Stable |
+| Roundtrip modules (`%option roundtrip_lexer`, `roundtrip_parser`, `roundtrip_format`), see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md) | Experimental |
+| Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`), see [`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md). It has no proofs. | Experimental |
+| Language server and VS Code extension, see [`docs/LANGUAGE_SERVER.md`](docs/LANGUAGE_SERVER.md) | Experimental |
 
 ## Further reading
 
