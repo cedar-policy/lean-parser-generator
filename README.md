@@ -15,7 +15,7 @@ This is version 0.1.0. Before 1.0, a minor version may change a stable interface
 | Command line: `leanparsergenerator [options] <input.lig>`, its flags and exit codes | Stable |
 | `.lig` directives, grammar rules, semantic actions, and the `%lexer` block | Stable |
 | Generated API: `parse`, `run`, `tokenize`, `errorMessage`, `diagnose`, and the exported theorems (`parser_sound`, `parser_complete`, `parser_err_free`, `parser_ne_err`, `parser_unambiguous`, `parse_eq_dependent`) | Stable |
-| `%option module_prefix` and `%option compress_tables` | Stable |
+| `%option module_prefix` and `%option compress_tables`, see the [`%option` reference](#option-reference) | Stable |
 | Roundtrip modules (`%option roundtrip_lexer`, `roundtrip_parser`, `roundtrip_format`), see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md) | Experimental |
 | Rust backend (`%option gen_rust`, `--rust-out`, `--rust-report`), see [`docs/USING_RUST_GENERATOR.md`](docs/USING_RUST_GENERATOR.md). It has no proofs. | Experimental |
 | Language server and VS Code extension, see [`docs/LANGUAGE_SERVER.md`](docs/LANGUAGE_SERVER.md) | Experimental |
@@ -124,7 +124,18 @@ lake exe leanparsergenerator MyProject/Expr.lig
 
 The generator infers the outputs from the input path and writes them next to the `.lig` file. For our example, it writes `MyProject/ExprVerified.lean`, `MyProject/ExprParser.lean`, and `MyProject/ExprLexer.lean` (the last one because the grammar has a `%lexer` block). The base name comes from the `.lig` stem (`Expr.lig` → `Expr`), so a grammar file named in the CamelCase you want for the modules produces those module names directly.
 
-`%option module_prefix <path>` in the `.lig` file is the dotted prefix the modules live under inside a larger module tree. With `%option module_prefix myproject.expr` the parser imports its lexer as `myproject.expr.ExprLexer` and a caller imports `myproject.expr.ExprParser`. Without it the modules are top-level.
+### `%option` reference
+
+`%option` lines in the `.lig` file change which modules are written and how. They never change the grammar that the proofs are about. An unknown option, a missing value, or a value on a flag is a syntax error.
+
+| Option | Value | Effect |
+|---|---|---|
+| `%option module_prefix <path>` | dotted module path | The prefix the generated modules live under inside a larger module tree. With `%option module_prefix myproject.expr` the parser imports its lexer as `myproject.expr.ExprLexer` and a caller imports `myproject.expr.ExprParser`. Without it the modules are top-level. `--module-prefix` overrides it. |
+| `%option compress_tables` | none | Write the executable parser's tables in a compact form. The tables hold the same values at runtime and the proofs are unchanged, but the generated source is smaller and compiles faster. See [`docs/DESIGN.md`](docs/DESIGN.md) §10. |
+| `%option gen_rust <path>` | file path, relative to the `.lig` file | Also write the Rust parser to `<path>`. Experimental. `--rust-out` overrides it. |
+| `%option roundtrip_lexer` | none | Also write `<Base>LexerRoundtrip.lean`. Experimental, see [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md). |
+| `%option roundtrip_parser <function>` | Lean function name | Also write `<Base>ParserRoundtrip.lean`. Experimental. |
+| `%option roundtrip_format <function>` | Lean function name | Add `format`, `relex` and `fullRoundtrip` to the parser roundtrip module. Experimental. |
 
 ### Command line reference
 
@@ -147,7 +158,7 @@ leanparsergenerator --help | --version
 
 The exit code is 0 on success. It is 1 on any error: bad arguments, an input file that cannot be read, a `.lig` syntax error, or a failure during generation. Syntax errors are reported as `file:line:col: parse error: …`. It is 2 when Pager reports LR(1) conflicts. In that case the conflicts are printed to standard error and the requested output is still written, so a build script that wants conflicts to fail the build must treat 2 as failure.
 
-[`docs/INTEGRATION.md`](docs/INTEGRATION.md) shows how to call the generator from a Lake target. `%option roundtrip_lexer`, `roundtrip_parser`, and `roundtrip_format` add experimental proof modules; they are not needed to get a working parser and are described in [`docs/ROUNDTRIP.md`](docs/ROUNDTRIP.md).
+[`docs/INTEGRATION.md`](docs/INTEGRATION.md) shows how to call the generator from a Lake target. The roundtrip options add experimental proof modules. They are not needed to get a working parser.
 
 Application code imports the generated parser and lexer and calls `parse` on the tokens produced by the lexer:
 

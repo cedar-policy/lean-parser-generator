@@ -231,10 +231,16 @@ partial def tokenize (input : String) : Except String (List LigTok) := do
         else
           toks := toks.push (.ACTION interior.trimAscii.toString); cur := c1
     else if (match toks.toList.reverse with
-        | .IDENT "gen_rust" :: .KW_OPTION :: _ => true
-        | _ => false) then
-      -- The value of `%option gen_rust` is a file path: a run of non-whitespace.
+        | .IDENT n :: .KW_OPTION :: _ => (findOption? n).any (·.value == .path)
+        | _ => false : Bool) then
+      -- The value of a path option (`%option gen_rust`) is a run of non-whitespace.
       let (path, c1) := takeWhile cur (fun c => !(c == ' ' || c == '\t' || c == '\n' || c == '\r'))
+      toks := toks.push (.IDENT path); cur := c1
+    else if (match toks.toList.reverse with
+        | .IDENT n :: .KW_OPTION :: _ => (findOption? n).any (·.value == .modulePath)
+        | _ => false : Bool) then
+      -- The value of a module path option (`%option module_prefix`) is a dotted name.
+      let (path, c1) := takeWhile cur (fun c => Cursor.isIdentCont c || c == '.')
       toks := toks.push (.IDENT path); cur := c1
     else if Cursor.isIdentStart ch then
       match scanSymbol cur with
@@ -297,18 +303,9 @@ def assembleSurface (directives : Array Directive) (rules : Array Rule) :
     | .eof nm => eof := some nm
     | .start nm => start := some nm
     | .option nm val =>
-      match nm, val with
-      | "compress_tables", _ => options := { options with compressTables := true }
-      | "roundtrip_lexer", _ => options := { options with roundtripLexer := true }
-      | "roundtrip_parser", some v => options := { options with roundtripParser := some v }
-      | "roundtrip_parser", none => throw "`%option roundtrip_parser` needs a token-generator function name (e.g. `%option roundtrip_parser unparsePolicies`)"
-      | "roundtrip_format", some v => options := { options with roundtripFormat := some v }
-      | "roundtrip_format", none => throw "`%option roundtrip_format` needs a token renderer function name (e.g. `%option roundtrip_format renderTok`)"
-      | "module_prefix", some v => options := { options with modulePrefix := v }
-      | "module_prefix", none => throw "`%option module_prefix` needs a module path (e.g. `%option module_prefix calc`)"
-      | "gen_rust", some v => options := { options with genRust := some v }
-      | "gen_rust", none => throw "`%option gen_rust` needs a file path (e.g. `%option gen_rust rust/src/generated.rs`)"
-      | other, _ => throw (unknownOptionMessage other)
+      match applyOption options nm val with
+      | .ok o => options := o
+      | .error e => throw e
     | .lexer interior =>
       let innerCur : Cursor := { input := interior, pos := ⟨0⟩ }
       match (scanLexerBlockBody Span.dummy).run innerCur |>.1 with

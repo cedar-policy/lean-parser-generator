@@ -22,6 +22,21 @@ lake build VerifiedHeavy   # compile + CACHE the heavy *Verified module (c99)
 lake build ParserTests     # calc/imp end-to-end + span/error-message/x_span tests
 ```
 
+## Frontend and command line tests
+
+```sh
+lake exe lig-bootstrap-test   # the generated .lig parser agrees with the hand-written one
+lake exe lig-option-test      # every %option in `optionSpecs` is handled the same by both parsers,
+                              # and is named in the README and the VS Code grammar
+lake exe cli-test             # exit codes, messages and files written by `leanparsergenerator`
+```
+
+Run them from the repository root. `cli-test` runs the `leanparsergenerator` binary next to
+it. `lake exe cli-test` does not build the generator, so run `lake build` (or
+`lake build leanparsergenerator`) first.
+To add an option, add it to `optionSpecs` in `LeanParserGenerator/Frontend/File.lean`,
+the VS Code grammar, and the README table; `lig-option-test` fails until all three agree.
+
 ## Roundtrip fixtures
 
 With `%option roundtrip_parser`, the generator writes production-tree helpers to

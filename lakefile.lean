@@ -257,6 +257,20 @@ lean_exe «lig-bootstrap-test» where
   srcDir := "test"
   root := `lig.BootstrapAgreementTest
 
+/-- Checks that both `.lig` parsers handle every `%option` in `optionSpecs` the same
+    way, and that the README and the VS Code grammar name each one. Run from the
+    repository root. -/
+lean_exe «lig-option-test» where
+  srcDir := "test"
+  root := `lig.OptionTest
+
+/-- Runs the `leanparsergenerator` binary on bad and good command lines and checks the
+    exit codes, messages, and files written. Run from the repository root, after
+    building `leanparsergenerator`. -/
+lean_exe «cli-test» where
+  srcDir := "test"
+  root := `cli.CliTest
+
 /-- End-to-end functional parser tests (calc, imp). Light fixtures only; kept out
     of the heavy path. Builds the `#guard`/`native_decide` checks. -/
 lean_lib «ParserTests» where
