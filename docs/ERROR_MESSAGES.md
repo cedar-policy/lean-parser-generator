@@ -1,7 +1,7 @@
 # Syntax-error messages (Menhir-style)
 
-Generated parsers can now produce informative syntax-error messages, following
-Menhir's declarative error-reporting model.
+Generated parsers produce syntax-error messages that list the terminals the
+parser expected, following Menhir's declarative error-reporting model.
 
 ## Background: how Menhir does it
 
@@ -41,7 +41,7 @@ lookahead. The layer built on top lives in
 This layer is *unverified* (like the executable engine), but it is proved
 **consistent** with the verified parser: `diagnose_run_agrees` shows `diagnose`
 classifies accept/reject/timeout exactly as the verified `Runtime.Exec.run`, so a
-syntax error is reported precisely when the parser genuinely rejects.
+syntax error is reported exactly when the parser rejects the input.
 
 ## Using it from a generated parser
 

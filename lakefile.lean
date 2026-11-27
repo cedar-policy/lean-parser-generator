@@ -68,10 +68,9 @@ structure GenTarget where
       used only for the staleness (mtime) check. Their names are what the CLI
       infers from `lig` and the grammar's `%option`s. -/
   outputs : Array String
-  /-- When set, the explicit CLI arguments to pass instead of the single `lig`
-      argument. Used for the bootstrap, whose outputs live in a `Generated/`
-      directory under a dotted module prefix that cannot be recovered by path
-      inference. -/
+  /-- When set, the CLI arguments to pass instead of the single `lig` argument.
+      Used for the bootstrap, whose outputs live in a `Generated/` directory under a
+      dotted module prefix that cannot be recovered by path inference. -/
   explicitArgs : Option (Array String) := none
 
 
@@ -82,16 +81,13 @@ def genTargets : Array GenTarget := #[
   -- Our parser generator bootsraps itselfs by generating the parser for `.lig` files.
   -- Regenerating this needs a working generator; the committed `LigParser`/`LigVerified` keep a
   -- clean checkout building without bootstrapping. Its outputs live in
-  -- `Generated/` under a dotted module prefix, so it uses the explicit CLI form.
+  -- `Generated/` under a dotted module prefix, so it passes `--out-dir` and `--module-prefix`.
   { lig := "LeanParserGenerator/Frontend/lig.lig"
     outputs := #["LeanParserGenerator/Frontend/Generated/LigVerified.lean",
       "LeanParserGenerator/Frontend/Generated/LigParser.lean"]
-    explicitArgs := some #["LeanParserGenerator/Frontend/lig.lig",
-      "LeanParserGenerator/Frontend/Generated/LigVerified.lean",
-      "LeanParserGenerator/Frontend/Generated/LigParser.lean",
-      "LeanParserGenerator.Frontend.Generated.LigVerified",
-      "LeanParserGenerator.Frontend.Generated.LigParser",
-      "LeanParserGenerator.Frontend.Generated.LigParser"] },
+    explicitArgs := some #["--out-dir", "LeanParserGenerator/Frontend/Generated",
+      "--module-prefix", "LeanParserGenerator.Frontend.Generated",
+      "LeanParserGenerator/Frontend/lig.lig"] },
   -- Below are examples for testing.
   -- LIG
   { lig := "test/calc/calc.lig"
@@ -134,7 +130,7 @@ def heavyGenTargets : Array GenTarget := #[
 ]
 
 /-- Regenerate one grammar (inferring outputs from its `.lig` and `%option`s, or
-    using explicit CLI args for the bootstrap) if any output is stale. -/
+    using explicit CLI flags for the bootstrap) if any output is stale. -/
 def regenSpec (dir : System.FilePath) (exeFile : System.FilePath)
     (spec : GenTarget) : IO Unit := do
   let ligPath := dir / spec.lig
@@ -260,6 +256,20 @@ lean_exe «cedarentities-corpus-test» where
 lean_exe «lig-bootstrap-test» where
   srcDir := "test"
   root := `lig.BootstrapAgreementTest
+
+/-- Checks that both `.lig` parsers handle every `%option` in `optionSpecs` the same
+    way, and that the README and the VS Code grammar name each one. Run from the
+    repository root. -/
+lean_exe «lig-option-test» where
+  srcDir := "test"
+  root := `lig.OptionTest
+
+/-- Runs the `leanparsergenerator` binary on bad and good command lines and checks the
+    exit codes, messages, and files written. Run from the repository root, after
+    building `leanparsergenerator`. -/
+lean_exe «cli-test» where
+  srcDir := "test"
+  root := `cli.CliTest
 
 /-- End-to-end functional parser tests (calc, imp). Light fixtures only; kept out
     of the heavy path. Builds the `#guard`/`native_decide` checks. -/

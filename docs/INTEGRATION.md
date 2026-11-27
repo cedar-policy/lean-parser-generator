@@ -34,6 +34,10 @@ The AST is an ordinary handwritten Lean definition. For example,
 `MyProject/ExprAst.lean`:
 
 ```lean
+module
+
+@[expose] public section
+
 namespace MyProject
 
 inductive Expr where
@@ -44,9 +48,11 @@ inductive Expr where
 end MyProject
 ```
 
-The token type is generated from the `%token` declarations (§3), unless you
-hand-write the lexer. In that case you also write the token type in this module,
-for example:
+Generated modules use Lean's module system, so every module they import must
+itself be a `module`. That is why the file starts with `module` and exposes its
+declarations with `@[expose] public section`. The token type is generated from
+the `%token` declarations (§3), unless you hand-write the lexer. In that case you
+also write the token type in this module, for example:
 
 ```lean
 inductive Tok where
@@ -134,27 +140,22 @@ This writes `MyProject/Generated/ExprVerified.lean`, `ExprParser.lean`, and
 import it as `MyProject.Generated.ExprLexer`). The base
 name is the `.lig` stem, so name the file in the CamelCase you want for the modules.
 
-Alternatively, when the generated files must live apart from the `.lig`, the
-command line can spell out every output path, module name, and the parser's import
-path:
+Alternatively, when the generated files must live apart from the `.lig`, name the
+output directory and the module prefix on the command line. Both override the
+`.lig`'s location and `%option module_prefix`:
 
 ```sh
 lake exe leanparsergenerator \
-  grammar/Expr.lig \
-  MyProject/Generated/ExprVerified.lean \
-  MyProject/Generated/ExprParser.lean \
-  MyProject.Generated.ExprVerified \
-  MyProject.Generated.ExprParser \
-  MyProject.Generated.ExprParser \
-  MyProject/Generated/ExprLexer.lean \
-  ExprLexer \
-  MyProject.Generated.ExprLexer
+  --out-dir MyProject/Generated \
+  --module-prefix MyProject.Generated \
+  grammar/Expr.lig
 ```
 
-The last three arguments are the lexer output path, its module name (used as the
-def prefix), and its dotted import path (which the parser modules import for the
-token type). Omit them for a hand-written-lexer grammar. Generated files should not
-be edited manually.
+This writes the same three modules into `MyProject/Generated/`. Run
+`leanparsergenerator --help` for the other flags: `--only` limits the output to some
+of the modules, and `--rust-out` writes the Rust parser. The exit code is 0 on
+success, 1 on any error, and 2 when Pager reports LR(1) conflicts (the files are
+still written). Generated files should not be edited manually.
 
 Application code normally imports the lexer and parser only:
 
@@ -201,9 +202,9 @@ never construct this dependent tree explicitly.
 
 ## 7. Automate generation with Lake
 
-The following target was validated against Lake 4.33. It rebuilds the generator,
-checks source/output modification times, and regenerates both modules before the
-library compilation jobs that depend on it:
+The following target was built with Lake 5.0.0 and Lean 4.36.0. It builds the
+generator, compares the modification times of the grammar, the generator and the
+outputs, and regenerates the modules before the library jobs that depend on them:
 
 ```lean
 import Lake
@@ -222,33 +223,35 @@ target generatedExprParser (pkg : NPackage __name__) : Unit := do
       let ligPath := pkg.dir / "grammar/Expr.lig"
       let verifiedPath := pkg.dir / "MyProject/Generated/ExprVerified.lean"
       let parserPath := pkg.dir / "MyProject/Generated/ExprParser.lean"
+      let lexerPath := pkg.dir / "MyProject/Generated/ExprLexer.lean"
 
       if let some outputDir := verifiedPath.parent then
         IO.FS.createDirAll outputDir
 
       let regenerate ← do
         if !(← System.FilePath.pathExists verifiedPath) ||
-            !(← System.FilePath.pathExists parserPath) then
+            !(← System.FilePath.pathExists parserPath) ||
+            !(← System.FilePath.pathExists lexerPath) then
           pure true
         else
           let inputTime := (← ligPath.metadata).modified
           let generatorTime := (← exeFile.metadata).modified
           let verifiedTime := (← verifiedPath.metadata).modified
           let parserTime := (← parserPath.metadata).modified
+          let lexerTime := (← lexerPath.metadata).modified
           pure (verifiedTime < inputTime || verifiedTime < generatorTime ||
-            parserTime < inputTime || parserTime < generatorTime)
+            parserTime < inputTime || parserTime < generatorTime ||
+            lexerTime < inputTime || lexerTime < generatorTime)
 
       if regenerate then
-        -- Explicit arguments: the outputs live in `MyProject/Generated/`, apart
-        -- from the `.lig` in `grammar/`. If instead the `.lig` sits with its
-        -- outputs and carries `%option module_prefix MyProject.Generated`, this is
-        -- just `args := #[ligPath.toString]`.
+        -- The outputs live in `MyProject/Generated/`, apart from the `.lig` in
+        -- `grammar/`. If instead the `.lig` sits with its outputs and carries
+        -- `%option module_prefix MyProject.Generated`, this is just
+        -- `args := #[ligPath.toString]`.
         let output ← IO.Process.output {
           cmd := exeFile.toString
-          args := #[ligPath.toString, verifiedPath.toString, parserPath.toString,
-            "MyProject.Generated.ExprVerified",
-            "MyProject.Generated.ExprParser",
-            "MyProject.Generated.ExprParser"]
+          args := #["--out-dir", "MyProject/Generated",
+            "--module-prefix", "MyProject.Generated", ligPath.toString]
           cwd := pkg.dir }
         if output.exitCode != 0 then
           error s!"parser generation failed:\n{output.stderr}"
@@ -278,20 +281,20 @@ lean_lib MyProjectVerified where
 Build the executable parser with `lake build` (fast, on the default path) and
 re-check the proofs with `lake build MyProjectVerified` (cached).
 
-We recommend running the proof check at a different time than the general build:
-for example, as a separate CI job that runs on changes to the `.lig` file or the
-generator version, and before a release. Checking `ExprVerified` from scratch takes
-tens of seconds for a Cedar-sized grammar (DESIGN §10 measures about 20 s for
-Cedar and about 30 s for C99 on a 32-core machine, before the optimizations it
-describes: about 4 min and about 18 min), and the parser does not import it, so the default build
-succeeds with or without it. That also means the default build does not tell you
-that the proofs hold; only the separate job does.
+Run the proof check separately from the general build, for example as a CI job
+that runs when the `.lig` file or the generator version changes, and before a
+release. Checking `ExprVerified` from scratch takes tens of seconds for a
+Cedar-sized grammar. DESIGN §10 measures about 20 s for Cedar and about 30 s for
+C99 on a 32-core machine, down from about 4 min and 18 min before the
+optimizations it describes. The parser does not import `ExprVerified`, so the
+default build succeeds with or without it. This also means that the default build
+does not show that the proofs hold. Only the separate job does.
 
 ### First build and CI
 
-Lake discovers Lean modules before ordinary library jobs run. If generated files
-are committed—which is recommended for inspection and review—plain `lake build`
-is sufficient and the target refreshes stale outputs automatically.
+Lake discovers Lean modules before it runs library jobs. If the generated files
+are committed, which is useful for review, plain `lake build` is enough and the
+target refreshes stale outputs.
 
 If generated files are not committed, bootstrap them before the first module
 discovery:
@@ -301,12 +304,12 @@ lake build generatedExprParser
 lake build
 ```
 
-Use the same two commands in a clean CI checkout. Subsequent `lake build` calls
-regenerate automatically whenever the `.lig` file or generator executable is
-newer. Exit code `2` means Pager reported LR(1) conflicts after writing the
-outputs; this production-oriented example intentionally treats it as a build
-failure rather than compiling a conflict-resolved parser. Frontend errors and
-other nonzero statuses likewise fail before stale parser code is compiled.
+Use the same two commands in a clean CI checkout. Later `lake build` calls
+regenerate the modules whenever the `.lig` file or the generator executable is
+newer. Exit code `2` means that Pager reported LR(1) conflicts after writing the
+outputs. The example treats it as a build failure, so a conflicted parser is never
+compiled. Any other nonzero exit code also fails the build before stale parser
+code is compiled.
 
 For several grammars, put their paths/module names in an array and run the same
 mtime-and-process block for each entry, as demonstrated by this repository's

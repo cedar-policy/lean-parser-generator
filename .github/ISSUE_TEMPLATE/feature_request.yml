@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest a change to the generator, the `.lig` language, or the generated code
+labels: [pending-triage, enhancement]
+
+body:
+  - type: textarea
+    attributes:
+      label: Problem
+      description: What you are trying to do and why the current behavior does not allow it.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Alternatives considered

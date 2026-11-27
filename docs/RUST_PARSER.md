@@ -1,6 +1,6 @@
 # Rust backend (prototype)
 
-`leanparsergenerator --backend rust <grammar.lig> <out.rs>` writes one Rust file with a
+`leanparsergenerator --only rust --rust-out <out.rs> <grammar.lig>` writes one Rust file with a
 lexer and an LR(1) parser. A grammar without a `%lexer` block (the C99 fixture) gets
 only the parser and the terminal constants; the caller supplies the tokens by
 implementing `Terminal` (`Kind` is a ready-made token that is only a terminal index).
@@ -20,7 +20,7 @@ The `.lig` names the Rust output:
 The path is relative to the directory of the `.lig` and starts with a name, not with
 `.` or `/`. `leanparsergenerator cedar.lig` (what `lake build parsers` runs) then writes
 it next to the Lean modules, and the first lines of the generated file say which `.lig`
-it came from. `--backend rust` writes a single file without the option. The Rust
+it came from. `--rust-out <file>` names the file without the option, and `--only rust` skips the Lean modules. The Rust
 functions that lexer actions call are named in the `%lexer` block with
 `rust f => crate::module::fn`, so the module is visible there too; the file itself
 (`test/cedar/rust/src/hooks.rs` for `crate::hooks`) is handwritten. In `cedar.lig`:

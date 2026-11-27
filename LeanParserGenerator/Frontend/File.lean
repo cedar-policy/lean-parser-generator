@@ -223,20 +223,83 @@ structure Options where
       default) the modules are top-level: the parser imports the bare `FooLexer` and
       the emitted module names carry no prefix. -/
   modulePrefix : String := ""
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, BEq
 
-/-- The `%option` names the frontend accepts. Shared by both `.lig` parsers and the
-    diagnostics engine so validation and error text stay in sync. `module_prefix`,
-    `roundtrip_parser`, `roundtrip_format` and `gen_rust` carry a value
-    (`%option module_prefix calc`, `%option roundtrip_parser unparsePolicies`,
-    `%option roundtrip_format renderTok`); the rest are flags. -/
-def knownOptions : List String :=
-  ["compress_tables", "roundtrip_lexer", "roundtrip_parser", "roundtrip_format",
-   "module_prefix", "gen_rust"]
+/-- What follows `%option <name>` in a `.lig`. -/
+inductive OptionValue where
+  /-- Nothing: the option is a flag. -/
+  | flag
+  /-- A Lean identifier (the name of a function). -/
+  | ident
+  /-- A dotted module path. -/
+  | modulePath
+  /-- A file path: a run of non-whitespace characters. -/
+  | path
+  deriving Repr, BEq, DecidableEq
+
+/-- One `%option`. `optionSpecs` is the single place that defines which options exist,
+    what value each takes, and how it changes `Options`. Both `.lig` parsers, the
+    unknown-option message and the consistency tests read it. -/
+structure OptionSpec where
+  name : String
+  value : OptionValue
+  /-- For an option with a value: what the value is, and an example use. They are
+      used in the message for a missing value. -/
+  valueDescription : String := ""
+  example_ : String := ""
+  /-- Set the option. The string is the value, and is empty for a flag. -/
+  set : Options → String → Options
+
+/-- Every `%option` the frontend accepts. -/
+def optionSpecs : List OptionSpec := [
+  { name := "compress_tables", value := .flag,
+    set := fun o _ => { o with compressTables := true } },
+  { name := "roundtrip_lexer", value := .flag,
+    set := fun o _ => { o with roundtripLexer := true } },
+  { name := "roundtrip_parser", value := .ident,
+    valueDescription := "a token-generator function name",
+    example_ := "roundtrip_parser unparsePolicies",
+    set := fun o v => { o with roundtripParser := some v } },
+  { name := "roundtrip_format", value := .ident,
+    valueDescription := "a token renderer function name",
+    example_ := "roundtrip_format renderTok",
+    set := fun o v => { o with roundtripFormat := some v } },
+  { name := "module_prefix", value := .modulePath,
+    valueDescription := "a module path",
+    example_ := "module_prefix calc",
+    set := fun o v => { o with modulePrefix := v } },
+  { name := "gen_rust", value := .path,
+    valueDescription := "a file path",
+    example_ := "gen_rust rust/src/generated.rs",
+    set := fun o v => { o with genRust := some v } }
+]
+
+/-- The `%option` names the frontend accepts. -/
+def knownOptions : List String := optionSpecs.map (·.name)
+
+/-- The spec of an option name, if it exists. -/
+def findOption? (name : String) : Option OptionSpec :=
+  optionSpecs.find? (·.name == name)
 
 /-- The `unknown %option` message, listing the accepted names. -/
 def unknownOptionMessage (name : String) : String :=
   s!"unknown `%option {name}` (known: {", ".intercalate knownOptions})"
+
+/-- The message for an option written without the value it needs. -/
+def missingOptionValueMessage (spec : OptionSpec) : String :=
+  s!"`%option {spec.name}` needs {spec.valueDescription} (e.g. `%option {spec.example_}`)"
+
+/-- Apply `%option <name> [<value>]` to `o`. Both `.lig` parsers call this, so they
+    accept and reject the same options with the same messages. -/
+def applyOption (o : Options) (name : String) (val : Option String) : Except String Options :=
+  match findOption? name with
+  | none => .error (unknownOptionMessage name)
+  | some spec =>
+    match spec.value, val with
+    | .flag, none => .ok (spec.set o "")
+    | .flag, some v => .error s!"`%option {name}` takes no value (got `{v}`)"
+    | _, some v => .ok (spec.set o v)
+    | _, none => .error (missingOptionValueMessage spec)
 
 /-- A parsed `.lig` file. -/
 structure Surface where
@@ -401,7 +464,8 @@ def scanModulePath : ScanM (Except String (String × Span)) := do
 def scanPathWord : ScanM (Except String (String × Span)) := do
   skipWs
   let c ← get
-  if c.atEnd then return .error s!"expected a file path at byte {c.pos.byteIdx}"
+  -- A `%` here is the next directive, so the path is missing.
+  if c.atEnd || c.peek == '%' then return .error s!"expected a file path at byte {c.pos.byteIdx}"
   let (s, sp) ← takeWhile (fun ch => !(ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'))
   if s.isEmpty then return .error s!"expected a file path at byte {c.pos.byteIdx}"
   return .ok (s, sp)
@@ -1070,22 +1134,23 @@ partial def parseLig (input : String) (_fileName : String := "<lig>") :
       start := some nm.1
     | "option" =>
       let (nm, c3) ← run scanIdent cur; cur := c3
-      match nm.1 with
-      | "compress_tables" => options := { options with compressTables := true }
-      | "roundtrip_lexer" => options := { options with roundtripLexer := true }
-      | "roundtrip_parser" =>
-        let (fn, c4) ← run scanIdent cur; cur := c4
-        options := { options with roundtripParser := some fn.1 }
-      | "roundtrip_format" =>
-        let (fn, c4) ← run scanIdent cur; cur := c4
-        options := { options with roundtripFormat := some fn.1 }
-      | "module_prefix" =>
-        let (val, c4) ← run scanModulePath cur; cur := c4
-        options := { options with modulePrefix := val.1 }
-      | "gen_rust" =>
-        let (val, c4) ← run scanPathWord cur; cur := c4
-        options := { options with genRust := some val.1 }
-      | other => throw s!"{unknownOptionMessage other} at byte {nm.2.startPos.byteIdx}"
+      let at_ := s!" at byte {nm.2.startPos.byteIdx}"
+      let some spec := findOption? nm.1
+        | throw (unknownOptionMessage nm.1 ++ at_)
+      let val : Option String ←
+        match spec.value with
+        | .flag => pure none
+        | kind =>
+          let scan := match kind with
+            | .modulePath => scanModulePath
+            | .path => scanPathWord
+            | _ => scanIdent
+          match run scan cur with
+          | .error _ => throw (missingOptionValueMessage spec ++ at_)
+          | .ok (v, c4) => cur := c4; pure (some v.1)
+      match applyOption options nm.1 val with
+      | .ok o => options := o
+      | .error e => throw (e ++ at_)
     | "lexer" =>
       let (blk, c3) ← run (captureBalanced '{' '}') cur; cur := c3
       let (interior, blockSpan) := blk

@@ -18,16 +18,18 @@ module
 /-
 `Main.lean` — `leanparsergenerator` CLI.
 
-With explicit paths, one invocation generates both backends from one parse and one Pager construction:
-
 ```
-leanparsergenerator grammar.lig GrammarVerified.lean GrammarParser.lean
+leanparsergenerator [options] <input.lig>
 ```
 
-Explicit `--backend verified|executable` retains single-output generation, while
-`--print-grammar bnf|markdown` renders the inspectable augmented view without
-writing files. Exit code 2 reports Pager conflicts after still writing or
-rendering the requested output.
+One invocation generates every module for the grammar from one parse and one Pager
+construction. Output names come from the `.lig` stem, and the `.lig`'s `%option`s
+decide which optional modules are written. The flags below adjust the defaults.
+`--print-grammar` and `--rust-report` inspect a grammar without writing files.
+
+Exit codes: 0 on success, 1 on any error (bad arguments, unreadable input, `.lig`
+parse or generation error), 2 when Pager reports LR(1) conflicts. With exit code 2
+the requested output is still written or rendered.
 -/
 public import LeanParserGenerator.Emit.Codegen
 public import LeanParserGenerator.Emit.CodegenVerified
@@ -37,17 +39,15 @@ public import LeanParserGenerator.Emit.Rust.Report
 public import LeanParserGenerator.Emit.CodegenLexerRoundtrip
 public import LeanParserGenerator.Emit.CodegenParserRoundtrip
 public import LeanParserGenerator.Frontend.File
+public import LeanParserGenerator.Frontend.Diagnostics
 
 
 public section
 
 open Frontend Emit Construct
 
-inductive Backend where
-  | verified
-  | executable
-  | rust
-  deriving BEq
+/-- The release version. Keep in sync with `version` in `lakefile.lean`. -/
+def toolVersion : String := "0.1.0"
 
 inductive GrammarViewFormat where
   | bnf
@@ -58,10 +58,20 @@ private def parseGrammarViewFormat : String → Option GrammarViewFormat
   | "markdown" => some .markdown
   | _ => none
 
-/-- Derive a Lean module name from an output path's file stem. -/
-def moduleOfPath (p : String) : String :=
-  let base := (p.splitOn "/").getLast!
-  if base.endsWith ".lean" then (base.dropEnd 5).toString else base
+/-- The outputs `--only` can select. -/
+inductive OutputKind where
+  | verified
+  | parser
+  | lexer
+  | rust
+  deriving BEq
+
+private def parseOutputKind : String → Option OutputKind
+  | "verified" => some .verified
+  | "parser" => some .parser
+  | "lexer" => some .lexer
+  | "rust" => some .rust
+  | _ => none
 
 /-- The directory of a path (everything up to and including the last `/`), or the
     empty string when the path has no directory component. -/
@@ -69,6 +79,10 @@ def dirOfPath (p : String) : String :=
   match (p.splitOn "/").dropLast with
   | [] => ""
   | parts => String.intercalate "/" parts ++ "/"
+
+/-- A directory name as a path prefix: empty stays empty, otherwise ends in `/`. -/
+def asDirPrefix (d : String) : String :=
+  if d.isEmpty || d.endsWith "/" then d else d ++ "/"
 
 /-- The base name inferred from a `.lig` path: its file stem with the first
     character upper-cased (`calc.lig` → `Calc`, `imp.lig` → `Imp`). The stem is used
@@ -86,6 +100,11 @@ def baseOfLig (ligPath : String) : String :=
 def qualify (prefix_ modName : String) : String :=
   if prefix_.isEmpty then modName else prefix_ ++ "." ++ modName
 
+/-- Print a message to stderr as `error: <message>`. -/
+private def fail (msg : String) : IO UInt32 := do
+  IO.eprintln s!"error: {msg}"
+  return 1
+
 private def conflictExitCode (ligPath : String) (tables : Tables) : IO UInt32 := do
   unless tables.conflicts.isEmpty do
     IO.eprintln s!"warning: [{ligPath}] {tables.conflicts.length} Pager LR(1) conflict(s):"
@@ -93,182 +112,135 @@ private def conflictExitCode (ligPath : String) (tables : Tables) : IO UInt32 :=
       IO.eprintln s!"    {conflict}"
   return if tables.conflicts.isEmpty then 0 else 2
 
+/-- Format a `.lig` parse error as `file:line:col: message` when the scanner
+    embedded a byte offset (`… at byte N`), dropping that suffix. Otherwise the
+    message is only prefixed with the file name. Lines and columns start at 1. -/
+private def locateParseError (ligPath input msg : String) : String :=
+  match extractByteOffset msg with
+  | none => s!"{ligPath}: parse error: {msg}"
+  | some off =>
+      let (line, col) := byteToLineCol input off
+      let suffix := s!" at byte {off}"
+      let msg := if msg.endsWith suffix then (msg.dropEnd suffix.length).toString else msg
+      s!"{ligPath}:{line + 1}:{col + 1}: parse error: {msg}"
+
 private def prepareFile (ligPath : String) : IO (Except String (Surface × PreparedGrammar)) := do
+  unless ← System.FilePath.pathExists ligPath do
+    return .error s!"cannot read `{ligPath}`: no such file"
+  if ← System.FilePath.isDir ligPath then
+    return .error s!"cannot read `{ligPath}`: it is a directory"
   let input ← IO.FS.readFile ligPath
   match parseLig input with
-  | .error error => return .error s!"parse error: {error}"
+  | .error error => return .error (locateParseError ligPath input error)
   | .ok surface0 =>
     match Frontend.Macros.expandMacros surface0 with
-    | .error error => return .error s!"macro expansion error: {error}"
+    | .error error => return .error s!"{ligPath}: macro expansion error: {error}"
     | .ok surface =>
       match prepareGrammar surface with
-      | .error error => return .error error
+      | .error error => return .error s!"{ligPath}: {error}"
       | .ok prepared => return .ok (surface, prepared)
 
-/-- Generate one explicitly selected backend. -/
-def generateFile (backend : Backend) (ligPath outPath moduleName : String) : IO UInt32 := do
-  match ← prepareFile ligPath with
-  | .error error =>
-      IO.eprintln s!"error: [{ligPath}] {error}"
-      return 1
-  | .ok (surface, prepared) =>
-      let source ← if backend == .verified then
-        generateVerifiedFrom surface prepared moduleName
-      else if backend == .rust then
-        pure (Emit.Rust.generateRustFrom surface prepared ligPath)
-      else
-        generateFrom surface prepared moduleName
-      match source with
-      | .error error =>
-          IO.eprintln s!"error: [{ligPath}] generation failed: {error}"
-          return 1
-      | .ok source =>
-          IO.FS.writeFile outPath source
-          IO.println s!"wrote {outPath} (module {moduleName})"
-          conflictExitCode ligPath prepared.tables
+/-- Write a generated file, creating its directory, and report it. -/
+private def writeOutput (path : String) (contents : String) (what : String) : IO Unit := do
+  if let some parent := (System.FilePath.mk path).parent then
+    unless parent.toString.isEmpty do IO.FS.createDirAll parent
+  IO.FS.writeFile path contents
+  IO.println s!"wrote {path} ({what})"
 
-/-- Generate verified and executable modules from one prepared grammar, and
-    optionally the lexer module when the `.lig` has a `%lexer` block and a lexer
-    output path is given. -/
-def generateBothFiles (ligPath verifiedOut executableOut verifiedModule executableModule : String)
-    (executableImport : Option String := none)
-    (lexerOut : Option String := none) (lexerModule : Option String := none)
-    (lexerImport : Option String := none) : IO UInt32 := do
-  match ← prepareFile ligPath with
-  | .error error =>
-      IO.eprintln s!"error: [{ligPath}] {error}"
-      return 1
-  | .ok (surface, prepared) =>
-      -- In the `%lexer` regime the lexer module owns the token type, so the parser
-      -- modules import it. Determine the lexer module name up front (when a lexer
-      -- output is requested and the grammar has a `%lexer` block) and thread its
-      -- dotted import path into parser generation.
-      let genLexer := lexerOut.isSome && surface.lexer.isSome
-      let lexShortName : Option String :=
-        if genLexer then some (lexerModule.getD (moduleOfPath lexerOut.get!)) else none
-      let lexImportPath : Option String :=
-        if genLexer then some (lexerImport.getD (lexShortName.getD "")) else none
-      match ← generateBothFrom surface prepared verifiedModule executableModule executableImport lexImportPath with
-      | .error error =>
-          IO.eprintln s!"error: [{ligPath}] generation failed: {error}"
-          return 1
-      | .ok (verifiedSource, executableSource) =>
-          -- Generate the lexer module first (it defines the token type the parser
-          -- modules import), then the parser modules.
-          match lexerOut with
-          | none => pure ()
-          | some lexPath =>
-            if surface.lexer.isNone then
-              IO.eprintln s!"warning: [{ligPath}] a lexer output was requested but the \
-grammar has no `%lexer` block; skipping {lexPath}"
-            else
-              let lexMod := lexShortName.getD (moduleOfPath lexPath)
-              match Emit.generateLexerFrom surface lexMod with
-              | .error e =>
-                  IO.eprintln s!"error: [{ligPath}] lexer generation failed: {e}"
-                  return 1
-              | .ok lexSource =>
-                  IO.FS.writeFile lexPath lexSource
-                  IO.println s!"wrote {lexPath} (module {lexMod})"
-          IO.FS.writeFile verifiedOut verifiedSource
-          IO.FS.writeFile executableOut executableSource
-          IO.println s!"wrote {verifiedOut} (module {verifiedModule})"
-          IO.println s!"wrote {executableOut} (module {executableModule})"
-          conflictExitCode ligPath prepared.tables
+/-- What a generation run was asked to do. -/
+structure GenConfig where
+  ligPath : String
+  /-- Directory for the generated Lean modules. Defaults to the `.lig`'s directory. -/
+  outDir : Option String := none
+  /-- Dotted module prefix. Overrides `%option module_prefix`. -/
+  modulePrefix : Option String := none
+  /-- Rust output path. Overrides `%option gen_rust`. -/
+  rustOut : Option String := none
+  /-- When non-empty, only these outputs are written. -/
+  only : List OutputKind := []
 
-/-- Generate every module for a `.lig` from the input path alone. Output paths and
-    module names are inferred from the `.lig` stem (`baseOfLig`) and written next to
-    the input; `%option module_prefix` supplies the dotted import prefix; a `%lexer`
-    block adds the lexer module, and `%option roundtrip_lexer` adds the roundtrip
-    module. This is the form that takes only a `.lig` argument. -/
-def generateInferred (ligPath : String) : IO UInt32 := do
+/-- Generate the modules for a `.lig`. Output paths and module names are inferred
+    from the `.lig` stem (`baseOfLig`); the `%lexer` block adds the lexer module,
+    `%option roundtrip_lexer` and `%option roundtrip_parser` the roundtrip modules
+    and `%option gen_rust` (or `--rust-out`) the Rust file. -/
+def generate (cfg : GenConfig) : IO UInt32 := do
+  let ligPath := cfg.ligPath
   match ← prepareFile ligPath with
-  | .error error =>
-      IO.eprintln s!"error: [{ligPath}] {error}"
-      return 1
+  | .error error => fail error
   | .ok (surface, prepared) =>
-      let dir := dirOfPath ligPath
-      let base := baseOfLig ligPath
-      let prefix_ := surface.options.modulePrefix
-      let verifiedModule := base ++ "Verified"
-      let executableModule := base ++ "Parser"
-      let verifiedOut := dir ++ verifiedModule ++ ".lean"
-      let executableOut := dir ++ executableModule ++ ".lean"
-      let executableImport := qualify prefix_ executableModule
-      -- Lexer only in the `%lexer` regime; roundtrip only when also asked for it.
-      let genLexer := surface.lexer.isSome
-      let lexerModule := base ++ "Lexer"
-      let lexerImport := qualify prefix_ lexerModule
+    let wants (k : OutputKind) : Bool := cfg.only.isEmpty || cfg.only.contains k
+    let dir := asDirPrefix (cfg.outDir.getD (dirOfPath ligPath))
+    let base := baseOfLig ligPath
+    let prefix_ := cfg.modulePrefix.getD surface.options.modulePrefix
+    let verifiedModule := base ++ "Verified"
+    let executableModule := base ++ "Parser"
+    let executableImport := qualify prefix_ executableModule
+    let lexerModule := base ++ "Lexer"
+    let lexerImport := qualify prefix_ lexerModule
+    let genLexer := surface.lexer.isSome
+    if cfg.only.contains .lexer && !genLexer then
+      return ← fail s!"{ligPath}: `--only lexer` needs a `%lexer` block in the grammar"
+    -- The Rust path from `--rust-out` is relative to the working directory; the one
+    -- from `%option gen_rust` is relative to the `.lig`.
+    let rustPath : Option String :=
+      cfg.rustOut <|> surface.options.genRust.map (dirOfPath ligPath ++ ·)
+    if cfg.only.contains .rust && rustPath.isNone then
+      return ← fail s!"{ligPath}: no Rust output path; set `%option gen_rust <path>` in the grammar or pass `--rust-out <path>`"
+    -- Lean parser modules.
+    if wants .verified || wants .parser then
       let lexImportPath : Option String := if genLexer then some lexerImport else none
       match ← generateBothFrom surface prepared verifiedModule executableModule
               (some executableImport) lexImportPath with
-      | .error error =>
-          IO.eprintln s!"error: [{ligPath}] generation failed: {error}"
-          return 1
+      | .error error => return ← fail s!"{ligPath}: generation failed: {error}"
       | .ok (verifiedSource, executableSource) =>
-          -- Rust, when `%option gen_rust <path>` names the file (relative to the `.lig`).
-          if let some rel := surface.options.genRust then
-            match Emit.Rust.generateRustFrom surface prepared ligPath with
-            | .error e =>
-                IO.eprintln s!"error: [{ligPath}] Rust generation failed: {e}"
-                return 1
-            | .ok rustSource =>
-                let rustPath := dir ++ rel
-                if let some parent := (System.FilePath.mk rustPath).parent then
-                  IO.FS.createDirAll parent
-                IO.FS.writeFile rustPath rustSource
-                IO.println s!"wrote {rustPath} (Rust)"
           -- Lexer first: it owns the token type the parser modules import.
-          if genLexer then
+          if genLexer && wants .lexer then
             match Emit.generateLexerFrom surface lexerModule with
-            | .error e =>
-                IO.eprintln s!"error: [{ligPath}] lexer generation failed: {e}"
-                return 1
+            | .error e => return ← fail s!"{ligPath}: lexer generation failed: {e}"
             | .ok lexSource =>
-                let lexPath := dir ++ lexerModule ++ ".lean"
-                IO.FS.writeFile lexPath lexSource
-                IO.println s!"wrote {lexPath} (module {lexerModule})"
-          IO.FS.writeFile verifiedOut verifiedSource
-          IO.FS.writeFile executableOut executableSource
-          IO.println s!"wrote {verifiedOut} (module {verifiedModule})"
-          IO.println s!"wrote {executableOut} (module {executableModule})"
-          -- Roundtrip module, opt-in via `%option roundtrip_lexer`.
-          if genLexer && surface.options.roundtripLexer then
-            let rtModule := lexerModule ++ "Roundtrip"
-            match Emit.generateRoundtripFrom surface lexerImport lexerModule rtModule with
-            | .error e =>
-                IO.eprintln s!"error: [{ligPath}] roundtrip generation failed: {e}"
-                return 1
-            | .ok rtSource =>
-                let rtPath := dir ++ rtModule ++ ".lean"
-                IO.FS.writeFile rtPath rtSource
-                IO.println s!"wrote {rtPath} (module {rtModule})"
-          -- Parser roundtrip module, opt-in via `%option roundtrip_parser <unparse>`.
-          -- The handwritten `<Base>Unparse` module defines `unparse`; a generated
-          -- lexer is needed only for `%option roundtrip_format`.
-          if surface.options.roundtripParser.isSome then
-            let prtModule := executableModule ++ "Roundtrip"
-            let unparseModule := base ++ "Unparse"
-            let unparseImport := qualify prefix_ unparseModule
-            match Emit.generateParserRoundtripFrom surface lexerImport lexerModule
-                    executableImport executableModule unparseImport prtModule with
-            | .error e =>
-                IO.eprintln s!"error: [{ligPath}] parser roundtrip generation failed: {e}"
-                return 1
-            | .ok prtSource =>
-                let prtPath := dir ++ prtModule ++ ".lean"
-                IO.FS.writeFile prtPath prtSource
-                IO.println s!"wrote {prtPath} (module {prtModule})"
-          conflictExitCode ligPath prepared.tables
+                writeOutput (dir ++ lexerModule ++ ".lean") lexSource s!"module {lexerModule}"
+          if wants .verified then
+            writeOutput (dir ++ verifiedModule ++ ".lean") verifiedSource s!"module {verifiedModule}"
+          if wants .parser then
+            writeOutput (dir ++ executableModule ++ ".lean") executableSource s!"module {executableModule}"
+    else if genLexer && wants .lexer then
+      match Emit.generateLexerFrom surface lexerModule with
+      | .error e => return ← fail s!"{ligPath}: lexer generation failed: {e}"
+      | .ok lexSource =>
+          writeOutput (dir ++ lexerModule ++ ".lean") lexSource s!"module {lexerModule}"
+    -- Rust.
+    if wants .rust then
+      if let some rp := rustPath then
+        match Emit.Rust.generateRustFrom surface prepared ligPath with
+        | .error e => return ← fail s!"{ligPath}: Rust generation failed: {e}"
+        | .ok rustSource => writeOutput rp rustSource "Rust"
+    -- Roundtrip modules (experimental) are opt-in through `%option`s and are written
+    -- only when no `--only` restriction is given.
+    if cfg.only.isEmpty then
+      if genLexer && surface.options.roundtripLexer then
+        let rtModule := lexerModule ++ "Roundtrip"
+        match Emit.generateRoundtripFrom surface lexerImport lexerModule rtModule with
+        | .error e => return ← fail s!"{ligPath}: roundtrip generation failed: {e}"
+        | .ok rtSource =>
+            writeOutput (dir ++ rtModule ++ ".lean") rtSource s!"module {rtModule}"
+      -- The handwritten `<Base>Unparse` module defines `unparse`; a generated lexer
+      -- is needed only for `%option roundtrip_format`.
+      if surface.options.roundtripParser.isSome then
+        let prtModule := executableModule ++ "Roundtrip"
+        let unparseImport := qualify prefix_ (base ++ "Unparse")
+        match Emit.generateParserRoundtripFrom surface lexerImport lexerModule
+                executableImport executableModule unparseImport prtModule with
+        | .error e => return ← fail s!"{ligPath}: parser roundtrip generation failed: {e}"
+        | .ok prtSource =>
+            writeOutput (dir ++ prtModule ++ ".lean") prtSource s!"module {prtModule}"
+    conflictExitCode ligPath prepared.tables
 
 /-- Print an inspectable view built from the same augmented grammar data emitted
     into the dependent specification module. The generated module's
     `verifiedGrammarView_agrees` theorem is the checked proof boundary. -/
 def printGrammarView (format : GrammarViewFormat) (ligPath : String) : IO UInt32 := do
   match ← prepareFile ligPath with
-  | .error error =>
-      IO.eprintln s!"error: [{ligPath}] {error}"
-      return 1
+  | .error error => fail error
   | .ok (surface, prepared) =>
       let view := buildVerifiedGrammarView surface prepared.augmented prepared.augProd
       let rendered := match format with
@@ -282,9 +254,7 @@ def printGrammarView (format : GrammarViewFormat) (ligPath : String) : IO UInt32
     modules built. -/
 def rustReport (verbose : Bool) (ligPath : String) : IO UInt32 := do
   match ← prepareFile ligPath with
-  | .error error =>
-      IO.eprintln s!"error: [{ligPath}] {error}"
-      return 1
+  | .error error => fail error
   | .ok (surface, _) =>
       let mods := Emit.Rust.headerImports surface.header
       let (res, note) ← match ← Emit.Rust.Resolver.ofImports mods with
@@ -293,148 +263,129 @@ def rustReport (verbose : Bool) (ligPath : String) : IO UInt32 := do
       IO.print (Emit.Rust.report surface res note verbose)
       return 0
 
-/-- Generate only the lexer module from a `.lig` `%lexer` block. -/
-def generateLexerOnly (ligPath lexerOut lexerModule : String) : IO UInt32 := do
-  match ← prepareFile ligPath with
-  | .error error =>
-      IO.eprintln s!"error: [{ligPath}] {error}"
-      return 1
-  | .ok (surface, prepared) =>
-      if surface.lexer.isNone then
-        IO.eprintln s!"error: [{ligPath}] no `%lexer` block in the grammar"
-        return 1
-      match Emit.generateLexerFrom surface lexerModule with
-      | .error e =>
-          IO.eprintln s!"error: [{ligPath}] lexer generation failed: {e}"
-          return 1
-      | .ok lexSource =>
-          IO.FS.writeFile lexerOut lexSource
-          IO.println s!"wrote {lexerOut} (module {lexerModule})"
-          conflictExitCode ligPath prepared.tables
+private def usageText : String :=
+"usage: leanparsergenerator [options] <input.lig>
+       leanparsergenerator --print-grammar bnf|markdown <input.lig>
+       leanparsergenerator --rust-report [-v] <input.lig>
+       leanparsergenerator --help | --version
 
-/-- Generate only the roundtrip module from a `.lig` `%lexer` block. `lexerImport`
-    is the dotted module path of the generated lexer (which owns the token type). -/
-def generateRoundtripOnly (ligPath roundtripOut lexerImport roundtripModule : String) :
-    IO UInt32 := do
-  match ← prepareFile ligPath with
-  | .error error =>
-      IO.eprintln s!"error: [{ligPath}] {error}"
-      return 1
-  | .ok (surface, prepared) =>
-      if surface.lexer.isNone then
-        IO.eprintln s!"error: [{ligPath}] no `%lexer` block in the grammar"
-        return 1
-      -- The lexer's declaration namespace is the last dotted component of its
-      -- import path (`calc.CalcLexer` → `CalcLexer`); that is what qualifies
-      -- `tokenize` in term position.
-      let lexerName := (lexerImport.splitOn ".").getLastD lexerImport
-      match Emit.generateRoundtripFrom surface lexerImport lexerName roundtripModule with
-      | .error e =>
-          IO.eprintln s!"error: [{ligPath}] roundtrip generation failed: {e}"
-          return 1
-      | .ok rtSource =>
-          IO.FS.writeFile roundtripOut rtSource
-          IO.println s!"wrote {roundtripOut} (module {roundtripModule})"
-          conflictExitCode ligPath prepared.tables
+Generate the Lean modules for a grammar. Outputs are named after the `.lig` stem
+(`Expr.lig` gives `ExprVerified.lean`, `ExprParser.lean`, and `ExprLexer.lean` when
+the grammar has a `%lexer` block) and written next to it. `%option`s in the `.lig`
+add the roundtrip modules and the Rust file.
 
-/-- Generate only the parser roundtrip module from a `.lig` with `%option
-    roundtrip_parser`. `lexerImport`/`parserImport`/`unparseImport` are the dotted
-    module paths of the generated lexer (token type), parser (`parse`), and the user
-    module defining `unparse` (and `renderTok`). -/
-def generateParserRoundtripOnly (ligPath roundtripOut lexerImport parserImport unparseImport
-    roundtripModule : String) : IO UInt32 := do
-  match ← prepareFile ligPath with
-  | .error error =>
-      IO.eprintln s!"error: [{ligPath}] {error}"
-      return 1
-  | .ok (surface, prepared) =>
-      let lexerName := (lexerImport.splitOn ".").getLastD lexerImport
-      let parserName := (parserImport.splitOn ".").getLastD parserImport
-      match Emit.generateParserRoundtripFrom surface lexerImport lexerName parserImport parserName
-              unparseImport roundtripModule with
-      | .error e =>
-          IO.eprintln s!"error: [{ligPath}] parser roundtrip generation failed: {e}"
-          return 1
-      | .ok rtSource =>
-          IO.FS.writeFile roundtripOut rtSource
-          IO.println s!"wrote {roundtripOut} (module {roundtripModule})"
-          conflictExitCode ligPath prepared.tables
+options:
+  --out-dir <dir>          write the Lean modules to <dir> instead of next to the `.lig`
+  --module-prefix <path>   dotted module prefix of the generated modules; overrides
+                           `%option module_prefix`
+  --rust-out <file>        also write the Rust parser to <file>; overrides `%option gen_rust`
+  --only <output>          write only this output; repeat to select several.
+                           <output> is verified, parser, lexer, or rust.
+  --print-grammar <fmt>    print the checked grammar as bnf or markdown; writes no files
+  --rust-report [-v]       report which actions the Rust backend can emit; writes no files
+  -h, --help               show this help
+  --version                show the version
 
-private def usage : IO UInt32 := do
-  IO.eprintln "usage:"
-  IO.eprintln "  leanparsergenerator <input.lig>"
-  IO.eprintln "      infer all outputs from the .lig stem (next to the input);"
-  IO.eprintln "      %option module_prefix sets the import prefix, roundtrip_lexer adds the roundtrip module"
-  IO.eprintln "  leanparsergenerator <input.lig> <verified-output.lean> <executable-output.lean>"
-  IO.eprintln "  leanparsergenerator <input.lig> <verified-output.lean> <executable-output.lean> <lexer-output.lean>"
-  IO.eprintln "  leanparsergenerator <input.lig> <verified-output.lean> <executable-output.lean> <verified-module> <executable-module> [executable-import]"
-  IO.eprintln "  leanparsergenerator --lexer <input.lig> <lexer-output.lean> [LexerModule]"
-  IO.eprintln "  leanparsergenerator --roundtrip <input.lig> <roundtrip-output.lean> <lexer-import> [RoundtripModule]"
-  IO.eprintln "  leanparsergenerator --roundtrip-parser <input.lig> <roundtrip-output.lean> <lexer-import> <parser-import> <unparse-import> [RoundtripModule]"
-  IO.eprintln "  leanparsergenerator --backend verified|executable|rust <input.lig> <output.lean> [ModuleName]"
-  IO.eprintln "  leanparsergenerator --print-grammar bnf|markdown <input.lig>"
-  IO.eprintln "  leanparsergenerator --rust-report [-v] <input.lig>   (which actions the Rust backend can emit)"
+exit codes:
+  0  success
+  1  error: bad arguments, unreadable input, or a `.lig` or generation error
+  2  the grammar has LR(1) conflicts; the requested output is still written
+"
+
+private def usageError (msg : String) : IO UInt32 := do
+  IO.eprintln s!"error: {msg}"
+  IO.eprintln "try `leanparsergenerator --help`"
   return 1
 
-private def parseBackend : String → Option Backend
-  | "verified" => some .verified
-  | "executable" => some .executable
-  | "rust" => some .rust
-  | _ => none
+/-- What the command line asks for. -/
+inductive Command where
+  | help
+  | version
+  | generate (cfg : GenConfig)
+  | printGrammar (format : GrammarViewFormat) (ligPath : String)
+  | rustReport (verbose : Bool) (ligPath : String)
+
+/-- Split `--flag=value` into `(flag, some value)`. -/
+private def splitFlag (a : String) : String × Option String :=
+  if a.startsWith "--" then
+    match a.splitOn "=" with
+    | [] => (a, none)
+    | [f] => (f, none)
+    | f :: rest => (f, some ("=".intercalate rest))
+  else (a, none)
+
+/-- Parse the command line. `Except` carries a usage error message. -/
+private partial def parseArgs (args : List String) : Except String Command := do
+  let mut rest := args
+  let mut cfg : GenConfig := { ligPath := "" }
+  let mut positional : Array String := #[]
+  let mut view : Option GrammarViewFormat := none
+  let mut report : Option Bool := none
+  let mut verbose := false
+  let mut help := false
+  let mut version := false
+  while !rest.isEmpty do
+    let a := rest.head!
+    rest := rest.tail!
+    let (flag, inline) := splitFlag a
+    -- The value of a flag that takes one: `--flag=value` or the next argument.
+    let value : Unit → Except String String := fun _ =>
+      match inline with
+      | some v => .ok v
+      | none => match rest with
+        | v :: _ => .ok v
+        | [] => .error s!"`{flag}` needs a value"
+    let consume : Bool := inline.isNone
+    match flag with
+    | "-h" | "--help" => help := true
+    | "--version" => version := true
+    | "-v" | "--verbose" => verbose := true
+    | "--rust-report" => report := some true
+    | "--out-dir" =>
+        cfg := { cfg with outDir := some (← value ()) }
+        if consume then rest := rest.tail!
+    | "--module-prefix" =>
+        cfg := { cfg with modulePrefix := some (← value ()) }
+        if consume then rest := rest.tail!
+    | "--rust-out" =>
+        cfg := { cfg with rustOut := some (← value ()) }
+        if consume then rest := rest.tail!
+    | "--only" =>
+        let v ← value ()
+        if consume then rest := rest.tail!
+        match parseOutputKind v with
+        | some k => cfg := { cfg with only := cfg.only ++ [k] }
+        | none => throw s!"unknown output `{v}` for `--only` (expected verified, parser, lexer, or rust)"
+    | "--print-grammar" =>
+        let v ← value ()
+        if consume then rest := rest.tail!
+        match parseGrammarViewFormat v with
+        | some f => view := some f
+        | none => throw s!"unknown format `{v}` for `--print-grammar` (expected bnf or markdown)"
+    | _ =>
+        if a.startsWith "-" && a != "-" then throw s!"unknown option `{a}`"
+        else positional := positional.push a
+  if help then return .help
+  if version then return .version
+  if positional.size > 1 then
+    throw s!"expected one input file, got {positional.size}: {" ".intercalate positional.toList}"
+  let some lig := positional[0]? | throw "missing input file"
+  if verbose && report.isNone then throw "`-v` is only meaningful with `--rust-report`"
+  match view, report with
+  | some _, some _ => throw "`--print-grammar` and `--rust-report` cannot be combined"
+  | some f, none => return .printGrammar f lig
+  | none, some _ => return .rustReport verbose lig
+  | none, none => return .generate { cfg with ligPath := lig }
+
+def run (args : List String) : IO UInt32 := do
+  match parseArgs args with
+  | .error msg => usageError msg
+  | .ok .help => IO.print usageText; return 0
+  | .ok .version => IO.println s!"leanparsergenerator {toolVersion} (Lean {Lean.versionString})"; return 0
+  | .ok (.generate cfg) => generate cfg
+  | .ok (.printGrammar f lig) => printGrammarView f lig
+  | .ok (.rustReport v lig) => rustReport v lig
 
 def main (args : List String) : IO UInt32 := do
-  match args with
-  | ["--print-grammar", formatName, lig] =>
-      match parseGrammarViewFormat formatName with
-      | some format => printGrammarView format lig
-      | none => usage
-  | ["--rust-report", lig] => rustReport false lig
-  | ["--rust-report", "-v", lig] => rustReport true lig
-  | "--lexer" :: rest =>
-      match rest with
-      | [lig, lexerOut] => generateLexerOnly lig lexerOut (moduleOfPath lexerOut)
-      | [lig, lexerOut, lexerModule] => generateLexerOnly lig lexerOut lexerModule
-      | _ => usage
-  | "--roundtrip" :: rest =>
-      match rest with
-      | [lig, rtOut, lexerImport] =>
-          generateRoundtripOnly lig rtOut lexerImport (moduleOfPath rtOut)
-      | [lig, rtOut, lexerImport, rtModule] =>
-          generateRoundtripOnly lig rtOut lexerImport rtModule
-      | _ => usage
-  | "--roundtrip-parser" :: rest =>
-      match rest with
-      | [lig, rtOut, lexerImport, parserImport, unparseImport] =>
-          generateParserRoundtripOnly lig rtOut lexerImport parserImport unparseImport (moduleOfPath rtOut)
-      | [lig, rtOut, lexerImport, parserImport, unparseImport, rtModule] =>
-          generateParserRoundtripOnly lig rtOut lexerImport parserImport unparseImport rtModule
-      | _ => usage
-  | "--backend" :: backendName :: rest =>
-      match parseBackend backendName, rest with
-      | some backend, [lig, out] => generateFile backend lig out (moduleOfPath out)
-      | some backend, [lig, out, moduleName] => generateFile backend lig out moduleName
-      | _, _ => usage
-  | [lig] =>
-      -- Only a `.lig`: infer all outputs from the `.lig` path and `%option`s.
-      generateInferred lig
-  | [lig, verifiedOut, executableOut] =>
-      generateBothFiles lig verifiedOut executableOut
-        (moduleOfPath verifiedOut) (moduleOfPath executableOut)
-  | [lig, verifiedOut, executableOut, lexerOut] =>
-      -- Fourth path is the lexer module output (distinct from the 5-arg
-      -- module-name form).
-      generateBothFiles lig verifiedOut executableOut
-        (moduleOfPath verifiedOut) (moduleOfPath executableOut)
-        (lexerOut := some lexerOut)
-  | [lig, verifiedOut, executableOut, verifiedModule, executableModule] =>
-      generateBothFiles lig verifiedOut executableOut verifiedModule executableModule
-  | [lig, verifiedOut, executableOut, verifiedModule, executableModule, executableImport] =>
-      generateBothFiles lig verifiedOut executableOut verifiedModule executableModule
-        (some executableImport)
-  | [lig, verifiedOut, executableOut, verifiedModule, executableModule, executableImport,
-      lexerOut, lexerModule, lexerImport] =>
-      -- Full form with explicit modules and a generated lexer (the `%lexer`
-      -- regime): the parser modules import `lexerImport` for the token type.
-      generateBothFiles lig verifiedOut executableOut verifiedModule executableModule
-        (some executableImport) (some lexerOut) (some lexerModule) (some lexerImport)
-  | _ => usage
+  try run args
+  catch e => fail e.toString

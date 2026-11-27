@@ -1,4 +1,4 @@
-# LEXER
+# Lexer
 
 A `%lexer { … }` block in a `.lig` file defines a generated lexer. The block contains named regular expressions, ordered rules, optional mode transitions, `skip` actions, and an optional `eof` action. The lexer uses longest-match semantics; an equal-length tie goes to the earlier rule.
 

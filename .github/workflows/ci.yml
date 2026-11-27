@@ -44,6 +44,10 @@ jobs:
         run: lake build ParserTests
       - name: Bootstrap agreement test
         run: lake exe lig-bootstrap-test
+      - name: Option consistency test
+        run: lake exe lig-option-test
+      - name: Command line test
+        run: lake exe cli-test
       - name: Cedar entities corpus test
         run: lake exe cedarentities-corpus-test
       # The Rust backend: the Cedar crate (lexer, trace parser, and the Rust actions of
