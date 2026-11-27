@@ -34,6 +34,10 @@ The AST is an ordinary handwritten Lean definition. For example,
 `MyProject/ExprAst.lean`:
 
 ```lean
+module
+
+@[expose] public section
+
 namespace MyProject
 
 inductive Expr where
@@ -44,9 +48,11 @@ inductive Expr where
 end MyProject
 ```
 
-The token type is generated from the `%token` declarations (§3), unless you
-hand-write the lexer. In that case you also write the token type in this module,
-for example:
+Generated modules use Lean's module system, so every module they import must
+itself be a `module`. That is why the file starts with `module` and exposes its
+declarations with `@[expose] public section`. The token type is generated from
+the `%token` declarations (§3), unless you hand-write the lexer. In that case you
+also write the token type in this module, for example:
 
 ```lean
 inductive Tok where
@@ -201,7 +207,7 @@ never construct this dependent tree explicitly.
 
 ## 7. Automate generation with Lake
 
-The following target was validated against Lake 4.33. It rebuilds the generator,
+The following target was validated against Lake 5.0.0 (Lean 4.36.0). It rebuilds the generator,
 checks source/output modification times, and regenerates both modules before the
 library compilation jobs that depend on it:
 
@@ -222,21 +228,25 @@ target generatedExprParser (pkg : NPackage __name__) : Unit := do
       let ligPath := pkg.dir / "grammar/Expr.lig"
       let verifiedPath := pkg.dir / "MyProject/Generated/ExprVerified.lean"
       let parserPath := pkg.dir / "MyProject/Generated/ExprParser.lean"
+      let lexerPath := pkg.dir / "MyProject/Generated/ExprLexer.lean"
 
       if let some outputDir := verifiedPath.parent then
         IO.FS.createDirAll outputDir
 
       let regenerate ← do
         if !(← System.FilePath.pathExists verifiedPath) ||
-            !(← System.FilePath.pathExists parserPath) then
+            !(← System.FilePath.pathExists parserPath) ||
+            !(← System.FilePath.pathExists lexerPath) then
           pure true
         else
           let inputTime := (← ligPath.metadata).modified
           let generatorTime := (← exeFile.metadata).modified
           let verifiedTime := (← verifiedPath.metadata).modified
           let parserTime := (← parserPath.metadata).modified
+          let lexerTime := (← lexerPath.metadata).modified
           pure (verifiedTime < inputTime || verifiedTime < generatorTime ||
-            parserTime < inputTime || parserTime < generatorTime)
+            parserTime < inputTime || parserTime < generatorTime ||
+            lexerTime < inputTime || lexerTime < generatorTime)
 
       if regenerate then
         -- Explicit arguments: the outputs live in `MyProject/Generated/`, apart
@@ -248,7 +258,9 @@ target generatedExprParser (pkg : NPackage __name__) : Unit := do
           args := #[ligPath.toString, verifiedPath.toString, parserPath.toString,
             "MyProject.Generated.ExprVerified",
             "MyProject.Generated.ExprParser",
-            "MyProject.Generated.ExprParser"]
+            "MyProject.Generated.ExprParser",
+            lexerPath.toString, "MyProject.Generated.ExprLexer",
+            "MyProject.Generated.ExprLexer"]
           cwd := pkg.dir }
         if output.exitCode != 0 then
           error s!"parser generation failed:\n{output.stderr}"

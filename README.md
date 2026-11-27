@@ -6,11 +6,19 @@ The generated parser is meant to be used as ordinary compiled Lean code. Alongsi
 
 This follows the a-posteriori validation architecture described in [Validating LR(1) Parsers](https://xavierleroy.org/publi/validated-parser.pdf), which Menhir's verified back end also uses. The implementation here uses Pager's LR(1) construction and a small Lean runtime.
 
+## Requirements
+
+Lean 4.36.0 and Lake 5.0.0, as pinned in `lean-toolchain`. Install them with [elan](https://github.com/leanprover/elan); a checkout picks the right toolchain automatically. Generated modules use Lean's module system, so a project that imports them must build with the same Lean version. The default `lake build` takes about 30 seconds from a clean checkout on a 32-core machine and has no dependencies besides Lean.
+
 ## A first parser
 
 We show how to use `lean-parser-generator` with a small example. Suppose that we want to parser sums of natural numbers. We begin by writing an ordinary Lean module that describes that the parser should produce (an abstract syntax tree `Ast`), in `MyProject/ExprAst.lean`:
 
 ```lean
+module
+
+@[expose] public section
+
 namespace Expr
 
 inductive Ast where
@@ -20,6 +28,7 @@ inductive Ast where
 
 end Expr
 ```
+Generated files use Lean's module system, so every module they import must be a `module` too. That is why the file starts with `module` and `@[expose] public section`.
 Then, we write the `.lig` file that defines our grammar, from which the parser is generated. The file starts with a `%header{...}` block that specifies Lean code that is printed as-is in the generated file. In our example, we import the previous module and open the `Expr` namespace. The `%option module_prefix` line gives the dotted prefix of the generated modules, so that they live under `MyProject`, next to the `.lig` file:
 ```text
 %header {
@@ -192,7 +201,7 @@ We recommend checking the proofs of the validated parser at a different time tha
 
 [`docs/INTEGRATION.md`](docs/INTEGRATION.md) gives a complete, tested setup. It
 includes local and pinned Git dependencies, source layout, the full generator
-command, parser and proof imports, a Lake 4.33 target, multiple-output mtime
+command, parser and proof imports, a Lake 5.0.0 target, multiple-output mtime
 checks, and clean-checkout CI commands.
 
 ## Why are there two generated modules?
@@ -309,6 +318,8 @@ lake build
 ```
 
 ## Contributing
+
+Contribution guidelines, the code of conduct, the security policy, governance and the maintainer list are shared across the `cedar-policy` organization and live in the [`cedar-policy/.github`](https://github.com/cedar-policy/.github) repository: [CONTRIBUTING](https://github.com/cedar-policy/.github/blob/main/CONTRIBUTING.md), [CODE_OF_CONDUCT](https://github.com/cedar-policy/.github/blob/main/CODE_OF_CONDUCT.md), [SECURITY](https://github.com/cedar-policy/.github/blob/main/SECURITY.md). Do not report security issues in a public issue. Changes that users can see go in [`CHANGELOG.md`](CHANGELOG.md).
 
 Source files carry the Cedar copyright notice, and a pre-commit hook checks for it. After cloning, install the hook once:
 

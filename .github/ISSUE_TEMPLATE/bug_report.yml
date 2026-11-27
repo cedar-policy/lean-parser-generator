@@ -1,0 +1,66 @@
+name: Bug report
+description: Report a problem with the generator, the generated code, or the docs
+labels: [pending-triage, bug]
+
+body:
+  - type: checkboxes
+    attributes:
+      label: Before opening, please confirm
+      options:
+        - label: I have searched for duplicate or closed issues.
+          required: true
+        - label: I have included a minimal `.lig` file or commands that reproduce the problem.
+          required: true
+
+  - type: dropdown
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Command line
+        - .lig syntax or frontend
+        - Generated parser
+        - Generated lexer
+        - Generated specification or proofs
+        - Language server or VS Code extension
+        - Rust backend (experimental)
+        - Roundtrip modules (experimental)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Reproduction
+      description: The `.lig` file and the exact commands. Remove any sensitive data.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Output
+      description: Error messages or Lean output.
+      render: text
+
+  - type: input
+    attributes:
+      label: Version
+      description: Commit hash or release, and the output of `lean --version` and `lake --version`.
+
+  - type: input
+    attributes:
+      label: Operating system

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security issue
+    url: https://github.com/cedar-policy/.github/blob/main/SECURITY.md
+    about: Do not open a public issue for security problems. Follow the Cedar security policy.
